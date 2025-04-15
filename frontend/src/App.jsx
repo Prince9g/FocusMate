@@ -3,13 +3,15 @@ import Navbar from './components/Navbar'
 import HeroSection from './components/HeroSection'
 import HowWorks from './components/HowWorks'
 import Events from './components/Events'
+import { Outlet } from 'react-router-dom'
 
 const App = () => {
   return (
     <div className="font-serif">
       <Navbar/>
-      <HeroSection/>
-      <HowWorks/>
+      <Outlet/>
+      {/* <HeroSection/>
+      <HowWorks/> */}
       {/* <Events/> */}
     </div>
   )
