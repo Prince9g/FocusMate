@@ -29,7 +29,7 @@ export const joinRoom = async (req, res) => {
   try {
     const room = await Room.findOne({ roomId, password });
     if (!room) {
-      return res.status(404).json({ success:false, error: "Room not found or password incorrect" });
+      return res.status(404).json({ success:false, message: "Room not found or password incorrect" });
     }
     res.status(200).json({ success:true, message: "Room joined" });
   } catch (err) {

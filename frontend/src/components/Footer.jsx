@@ -1,7 +1,6 @@
 // components/Footer.jsx
 import { motion } from "framer-motion";
 import { FaGithub, FaTwitter, FaLinkedin } from "react-icons/fa";
-
 export const Footer = () => {
   return (
     <footer className="bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 mt-10">
@@ -22,7 +21,7 @@ export const Footer = () => {
 
         {/* Social Icons */}
         <div className="mt-4 md:mt-0 flex space-x-4">
-          <motion.a whileHover={{ scale: 1.1 }} href="https://github.com" target="_blank">
+          <motion.a whileHover={{ scale: 1.1 }} href="https://github.com/Prince9g/FocusMate" target="_blank">
             <FaGithub className="text-xl hover:text-blue-500" />
           </motion.a>
           <motion.a whileHover={{ scale: 1.1 }} href="https://twitter.com" target="_blank">

@@ -7,6 +7,7 @@ import Events from './components/Events.jsx';
 import HeroSection from './components/HeroSection.jsx';
 import HowWorks from './components/HowWorks.jsx';
 import HomePage from './components/HomePage.jsx';
+import Room from './components/Room.jsx';
 
 const router = createBrowserRouter([
   {
@@ -24,8 +25,12 @@ const router = createBrowserRouter([
       {
         path:'/how-it-works',
         element: <HowWorks/>
-      }
+      },
     ]
+  },
+  {
+    path:'/room/:roomId',
+    element : <Room/>
   }
 ]);
 
