@@ -19,8 +19,8 @@ const JoinRoom = () => {
         name: name.current.value,
       });
       if (res.data) {
-        const username = res.data.room.name;
-        localStorage.setItem("focusRoomUser", username);
+        // const username = res.data.room.name;
+        localStorage.setItem("focusRoomUser", name.current.value);
         setModalIsOpen(false);
         navigate(`/room/${roomId.current.value}`);
       }

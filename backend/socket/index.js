@@ -13,14 +13,24 @@ export const setupSockets = (io) => {
       next(new Error("Authentication error"));
     }
   });
+
   io.on("connection", (socket) => {
     console.log("🔌 New client connected:", socket.id);
+    let currentRoomId = null;
+
+    // Helper function to get participant count
+    const getParticipantCount = async (roomId) => {
+      const room = await Room.findOne({ roomId });
+      return room ? room.participants.filter(p => !p.leftAt).length : 0;
+    };
 
     // ======================
     // 1. Room Joining Logic
     // ======================
     socket.on("join-room", async ({ roomId, name, password }) => {
       try {
+        currentRoomId = roomId;
+        
         // Verify room exists and password matches
         const room = await Room.findOne({ roomId, password });
         if (!room) {
@@ -34,9 +44,9 @@ export const setupSockets = (io) => {
           return;
         }
         
-        // Check if name is taken
+        // Check if name is taken by active participant
         const nameExists = room.participants.some(
-          (p) => p.name === name && !p.leftAt
+          p => p.name === name && !p.leftAt && p.socketId !== socket.id
         );
         if (nameExists) {
           socket.emit("join-error", "Name already taken in this room");
@@ -47,36 +57,50 @@ export const setupSockets = (io) => {
         socket.join(roomId);
 
         // Add/update participant
-        let participant = room.participants.find((p) => p.name === name);
+        let participant = room.participants.find(p => p.name === name);
         if (participant) {
-          // Reconnecting user
+          // Reconnecting user - update socket ID and clear leftAt
           participant.socketId = socket.id;
           participant.leftAt = undefined;
         } else {
           // New user
-          room.participants.push({
+          participant = {
             name,
             socketId: socket.id,
             joinedAt: new Date(),
-          });
+            isMuted: false,
+            isCameraOff: false
+          };
+          room.participants.push(participant);
         }
 
         await room.save();
 
-        // Notify others in the room
+        // Get updated participant list
+        const participants = room.participants
+          .filter(p => !p.leftAt)
+          .map(p => ({
+            socketId: p.socketId,
+            name: p.name,
+            isMuted: p.isMuted || false,
+            isCameraOff: p.isCameraOff || false
+          }));
+
+        // Notify others in the room about the new user
         socket.to(roomId).emit("user-connected", {
           socketId: socket.id,
           name,
+          isMuted: participant.isMuted,
+          isCameraOff: participant.isCameraOff
         });
 
         // Send full room state to the new user
-        const updatedRoom = await Room.findOne({ roomId });
         socket.emit("room-details", {
-          roomId: updatedRoom.roomId,
-          name: updatedRoom.name,
-          expiresAt: updatedRoom.expiresAt,
-          participants: updatedRoom.participants.filter((p) => !p.leftAt),
-          messages: updatedRoom.messages,
+          roomId: room.roomId,
+          name: room.name,
+          expiresAt: room.expiresAt,
+          participants,
+          messages: room.messages
         });
 
         // Log activity
@@ -84,6 +108,7 @@ export const setupSockets = (io) => {
           socketId: socket.id,
           roomId,
           userIP: socket.handshake.address,
+          joinedAt: new Date()
         });
 
       } catch (err) {
@@ -95,9 +120,11 @@ export const setupSockets = (io) => {
     // ======================
     // 2. WebRTC Signaling
     // ======================
-    socket.on("signal", ({ to, from, signal }) => {
+    socket.on("signal", ({ to, signal }) => {
       // Forward WebRTC signaling data to the target user
-      io.to(to).emit("signal", { from, signal });
+      if (to && signal) {
+        io.to(to).emit("signal", { from: socket.id, signal });
+      }
     });
 
     // ======================
@@ -105,28 +132,27 @@ export const setupSockets = (io) => {
     // ======================
     socket.on("send-message", async ({ roomId, sender, content, isReaction }) => {
       try {
+        if (!roomId || !sender || !content) {
+          console.error("Invalid message data");
+          return;
+        }
+
+        const newMessage = {
+          sender,
+          content,
+          isReaction: !!isReaction,
+          timestamp: new Date()
+        };
+
         // Save message to database
         await Room.findOneAndUpdate(
           { roomId },
-          {
-            $push: {
-              messages: {
-                sender,
-                content,
-                isReaction,
-                timestamp: new Date(),
-              },
-            },
-          }
+          { $push: { messages: newMessage } },
+          { new: true }
         );
 
-        // Broadcast to all in the room
-        io.to(roomId).emit("new-message", {
-          sender,
-          content,
-          isReaction,
-          timestamp: new Date(),
-        });
+        // Broadcast to all in the room including sender
+        io.to(roomId).emit("new-message", newMessage);
 
       } catch (err) {
         console.error("Message send error:", err);
@@ -134,31 +160,61 @@ export const setupSockets = (io) => {
     });
 
     // ======================
-    // 4. Disconnection Handling
+    // 4. User Status Updates
     // ======================
-    socket.on("disconnect", async () => {
+    socket.on("user-update", async ({ roomId, isMuted, isCameraOff }) => {
+      try {
+        const room = await Room.findOne({ roomId });
+        if (!room) return;
+
+        const participant = room.participants.find(
+          p => p.socketId === socket.id && !p.leftAt
+        );
+        if (!participant) return;
+
+        if (isMuted !== undefined) participant.isMuted = isMuted;
+        if (isCameraOff !== undefined) participant.isCameraOff = isCameraOff;
+
+        await room.save();
+
+        // Broadcast update to room
+        socket.to(roomId).emit("user-updated", {
+          socketId: socket.id,
+          isMuted,
+          isCameraOff
+        });
+
+      } catch (err) {
+        console.error("User update error:", err);
+      }
+    });
+
+    // ======================
+    // 5. Disconnection Handling
+    // ======================
+    const handleDisconnect = async () => {
       console.log("❌ Client disconnected:", socket.id);
 
       try {
-        // Find which room this socket was in
-        const room = await Room.findOne({ "participants.socketId": socket.id });
+        if (!currentRoomId) return;
 
-        if (room) {
-          // Mark participant as left
-          const participant = room.participants.find(
-            (p) => p.socketId === socket.id && !p.leftAt
-          );
+        const room = await Room.findOne({ roomId: currentRoomId });
+        if (!room) return;
 
-          if (participant) {
-            participant.leftAt = new Date();
-            await room.save();
+        // Mark participant as left
+        const participant = room.participants.find(
+          p => p.socketId === socket.id && !p.leftAt
+        );
 
-            // Notify room
-            io.to(room.roomId).emit("user-disconnected", {
-              socketId: socket.id,
-              name: participant.name,
-            });
-          }
+        if (participant) {
+          participant.leftAt = new Date();
+          await room.save();
+
+          // Notify room
+          io.to(currentRoomId).emit("user-disconnected", {
+            socketId: socket.id,
+            name: participant.name
+          });
         }
 
         // Update activity log
@@ -170,10 +226,13 @@ export const setupSockets = (io) => {
       } catch (err) {
         console.error("Disconnect handling error:", err);
       }
-    });
+    };
+
+    socket.on("disconnect", handleDisconnect);
+    socket.on("leave-room", handleDisconnect);
 
     // ======================
-    // 5. Room Status Checks
+    // 6. Room Status Checks
     // ======================
     socket.on("check-room", async ({ roomId }, callback) => {
       try {
@@ -186,7 +245,7 @@ export const setupSockets = (io) => {
           exists: true,
           requiresPassword: true,
           name: room.name,
-          participantCount: room.participants.filter((p) => !p.leftAt).length,
+          participantCount: room.participants.filter(p => !p.leftAt).length,
         });
 
       } catch (err) {

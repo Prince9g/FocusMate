@@ -28,30 +28,45 @@ const Room = () => {
   const pcRefs = useRef({});
   const userName = localStorage.getItem("focusRoomUser") || "Guest";
   const reactions = ['👍', '👎', '😊', '🎉', '❤️', '😂'];
+  const messageEndRef = useRef(null);
+
+  // Scroll to bottom of messages
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   // Initialize socket and room
   useEffect(() => {
-    // Connect to socket server
+    // Connect to socket server with reconnection options
     socket.current = io('http://localhost:8080', {
+      auth: { roomId, name: userName },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
       withCredentials: true,
-      transports: ['websocket', 'polling'],
-      auth: { roomId, name: userName }
+      transports: ['websocket', 'polling']
     });
 
     // Connection handlers
-    socket.current.on('connect', () => {
+    const handleConnect = () => {
       console.log('Socket connected:', socket.current.id);
       setConnectionStatus('connected');
-    });
+      socket.current.emit('join-room', { roomId, name: userName });
+    };
 
-    socket.current.on('disconnect', () => {
+    const handleDisconnect = () => {
       setConnectionStatus('disconnected');
-    });
+    };
 
-    socket.current.on('connect_error', (err) => {
+    const handleConnectError = (err) => {
       console.error('Connection error:', err);
       setConnectionStatus('error');
-    });
+    };
+
+    socket.current.on('connect', handleConnect);
+    socket.current.on('disconnect', handleDisconnect);
+    socket.current.on('connect_error', handleConnectError);
 
     // Get room details
     const fetchRoomDetails = async () => {
@@ -62,11 +77,10 @@ const Room = () => {
           setMessages(res.data.messages || []);
           updateTimeLeft(res.data.expiresAt);
           
-          // Initialize participants with unique names
           const participants = res.data.participants
             .filter(p => !p.leftAt)
-            .map((p, index) => ({
-              id: p.socketId || `user_${index}_${Date.now()}`,
+            .map((p) => ({
+              id: p.socketId,
               name: p.name,
               isMuted: false,
               isCameraOff: false,
@@ -83,17 +97,16 @@ const Room = () => {
     fetchRoomDetails();
 
     // Socket event listeners
-    socket.current.on('room-details', (room) => {
+    const handleRoomDetails = (room) => {
       setRoomDetails(room);
       setMessages(room.messages || []);
       updateTimeLeft(room.expiresAt);
-    });
+    };
 
-    socket.current.on('user-connected', ({ socketId, name }) => {
+    const handleUserConnected = ({ socketId, name }) => {
       setUsers(prev => {
-        // Ensure unique names
-        const nameExists = prev.some(user => user.name === name);
-        return nameExists ? prev : [...prev, { 
+        if (prev.some(user => user.id === socketId)) return prev;
+        return [...prev, { 
           id: socketId, 
           name, 
           isMuted: false, 
@@ -101,63 +114,73 @@ const Room = () => {
           isSpeaking: false 
         }];
       });
-    });
+      
+      if (socketId !== socket.current.id && localStream) {
+        createPeerConnection(socketId);
+      }
+    };
 
-    socket.current.on('user-disconnected', ({ socketId }) => {
+    const handleUserDisconnected = ({ socketId }) => {
       setUsers(prev => prev.filter(user => user.id !== socketId));
       if (pcRefs.current[socketId]) {
         pcRefs.current[socketId].close();
         delete pcRefs.current[socketId];
       }
-    });
+      setRemoteStreams(prev => {
+        const newStreams = {...prev};
+        delete newStreams[socketId];
+        return newStreams;
+      });
+    };
 
-    socket.current.on('new-message', (message) => {
+    const handleNewMessage = (message) => {
       setMessages(prev => [...prev, message]);
-    });
+    };
 
-    socket.current.on('user-updated', ({ socketId, isMuted, isCameraOff }) => {
-      setUsers(prev => prev.map(user => 
-        user.id === socketId ? { 
-          ...user, 
-          isMuted: isMuted !== undefined ? isMuted : user.isMuted,
-          isCameraOff: isCameraOff !== undefined ? isCameraOff : user.isCameraOff
-        } : user
-      ));
-    });
-
-    socket.current.on('signal', async ({ from, signal }) => {
-      if (!pcRefs.current[from]) {
-        await createPeerConnection(from);
-      }
-      
-      if (signal.type === 'offer') {
-        await pcRefs.current[from].setRemoteDescription(new RTCSessionDescription(signal));
-        const answer = await pcRefs.current[from].createAnswer();
-        await pcRefs.current[from].setLocalDescription(answer);
-        socket.current.emit('signal', { to: from, from: socket.current.id, signal: answer });
-      } else if (signal.type === 'answer') {
-        await pcRefs.current[from].setRemoteDescription(new RTCSessionDescription(signal));
-      } else if (signal.type === 'candidate') {
-        await pcRefs.current[from].addIceCandidate(new RTCIceCandidate(signal));
-      }
-    });
-
-    // Join the room after connection
-    const joinRoom = () => {
-      if (socket.current.connected) {
-        socket.current.emit('join-room', { roomId, name: userName });
-      } else {
-        socket.current.once('connect', () => {
-          socket.current.emit('join-room', { roomId, name: userName });
-        });
+    const handleSignal = async ({ from, signal }) => {
+      try {
+        if (!pcRefs.current[from]) {
+          await createPeerConnection(from);
+        }
+        
+        if (signal.type === 'offer') {
+          await pcRefs.current[from].setRemoteDescription(new RTCSessionDescription(signal));
+          const answer = await pcRefs.current[from].createAnswer();
+          await pcRefs.current[from].setLocalDescription(answer);
+          socket.current.emit('signal', { to: from, signal: answer });
+        } else if (signal.type === 'answer') {
+          await pcRefs.current[from].setRemoteDescription(new RTCSessionDescription(signal));
+        } else if (signal.type === 'candidate') {
+          await pcRefs.current[from].addIceCandidate(new RTCIceCandidate(signal));
+        }
+      } catch (err) {
+        console.error('Error handling signal:', err);
       }
     };
-    joinRoom();
+
+    socket.current.on('room-details', handleRoomDetails);
+    socket.current.on('user-connected', handleUserConnected);
+    socket.current.on('user-disconnected', handleUserDisconnected);
+    socket.current.on('new-message', handleNewMessage);
+    socket.current.on('signal', handleSignal);
+
+    // Initialize media
+    initLocalMedia();
 
     return () => {
+      socket.current.off('connect', handleConnect);
+      socket.current.off('disconnect', handleDisconnect);
+      socket.current.off('connect_error', handleConnectError);
+      socket.current.off('room-details', handleRoomDetails);
+      socket.current.off('user-connected', handleUserConnected);
+      socket.current.off('user-disconnected', handleUserDisconnected);
+      socket.current.off('new-message', handleNewMessage);
+      socket.current.off('signal', handleSignal);
+      
       if (socket.current) {
         socket.current.disconnect();
       }
+      
       Object.values(pcRefs.current).forEach(pc => pc.close());
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
@@ -198,16 +221,15 @@ const Room = () => {
       });
       setLocalStream(stream);
       
-      // Display local stream
       if (videoRefs.current['local']) {
         videoRefs.current['local'].srcObject = stream;
       }
       
-      // Send stream to existing peers
-      Object.keys(pcRefs.current).forEach(socketId => {
-        stream.getTracks().forEach(track => {
-          pcRefs.current[socketId].addTrack(track, stream);
-        });
+      // Create peer connections for existing users
+      users.forEach(user => {
+        if (user.id !== socket.current?.id) {
+          createPeerConnection(user.id);
+        }
       });
     } catch (err) {
       console.error("Error accessing media devices:", err);
@@ -216,79 +238,79 @@ const Room = () => {
 
   // Create peer connection
   const createPeerConnection = async (socketId) => {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-    
-    pcRefs.current[socketId] = pc;
-    
-    // Add local stream if available
-    if (localStream) {
-      localStream.getTracks().forEach(track => {
-        pc.addTrack(track, localStream);
+    try {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
-    }
-    
-    // Handle remote stream
-    pc.ontrack = (event) => {
-      setRemoteStreams(prev => ({
-        ...prev,
-        [socketId]: event.streams[0]
-      }));
-    };
-    
-    // Handle ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.current.emit('signal', {
-          to: socketId,
-          from: socket.current.id,
-          signal: event.candidate
+      
+      pcRefs.current[socketId] = pc;
+      
+      // Add local stream if available
+      if (localStream) {
+        localStream.getTracks().forEach(track => {
+          pc.addTrack(track, localStream);
         });
       }
-    };
-    
-    // Create offer if this is a new connection
-    if (!users.some(user => user.id === socketId)) {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.current.emit('signal', {
-        to: socketId,
-        from: socket.current.id,
-        signal: offer
-      });
+      
+      // Handle remote stream
+      pc.ontrack = (event) => {
+        setRemoteStreams(prev => ({
+          ...prev,
+          [socketId]: event.streams[0]
+        }));
+      };
+      
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.current.emit('signal', {
+            to: socketId,
+            signal: event.candidate
+          });
+        }
+      };
+      
+      // Create offer for new connections
+      if (socketId !== socket.current?.id) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.current.emit('signal', {
+          to: socketId,
+          signal: offer
+        });
+      }
+    } catch (err) {
+      console.error('Error creating peer connection:', err);
     }
   };
 
   // Handle sending messages
-  const handleSendMessage = async (e) => {
+  const handleSendMessage = (e) => {
     e.preventDefault();
-    if (message.trim()) {
-      try {
-        await axios.post(`http://localhost:8080/api/rooms/${roomId}/messages`, {
-          sender: userName,
-          content: message,
-          isReaction: false
-        });
-        setMessages(prev => [...prev, { sender: userName, content: message, isReaction: false }]);
-        setMessage('');
-      } catch (err) {
-        console.error("Failed to send message:", err);
-      }
+    if (message.trim() && socket.current?.connected) {
+      socket.current.emit('send-message', {
+        roomId,
+        sender: userName,
+        content: message,
+        isReaction: false
+      });
+      setMessage('');
     }
   };
 
   // Handle sending reactions
   const handleSendReaction = (reaction) => {
-    socket.current.emit('send-message', {
-      roomId,
-      sender: userName,
-      content: reaction,
-      isReaction: true
-    });
-    setActiveReaction(reaction);
-    setShowReactions(false);
-    setTimeout(() => setActiveReaction(null), 2000);
+    if (socket.current?.connected) {
+      socket.current.emit('send-message', {
+        roomId,
+        sender: userName,
+        content: reaction,
+        isReaction: true
+      });
+      setActiveReaction(reaction);
+      setShowReactions(false);
+      setTimeout(() => setActiveReaction(null), 2000);
+    }
   };
 
   // Toggle mute
@@ -299,6 +321,13 @@ const Room = () => {
         track.enabled = !track.enabled;
       });
       setIsMuted(!isMuted);
+      
+      if (socket.current?.connected) {
+        socket.current.emit('user-update', { 
+          roomId, 
+          isMuted: !isMuted 
+        });
+      }
     }
   };
 
@@ -310,6 +339,13 @@ const Room = () => {
         track.enabled = !track.enabled;
       });
       setIsCameraOff(!isCameraOff);
+      
+      if (socket.current?.connected) {
+        socket.current.emit('user-update', { 
+          roomId, 
+          isCameraOff: !isCameraOff 
+        });
+      }
     }
   };
 
@@ -317,11 +353,6 @@ const Room = () => {
   const toggleFullScreen = (user) => {
     setFullScreenUser(prev => prev?.id === user.id ? null : user);
   };
-
-  // Initialize media on component mount
-  useEffect(() => {
-    initLocalMedia();
-  }, []);
 
   // Format time display
   const formatTime = (time) => {
@@ -353,7 +384,7 @@ const Room = () => {
       {/* Header with room info */}
       <div className="bg-purple-400 text-white p-4 flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold">Welcome to {roomDetails?.name || 'Room'}</h2>
+          <h2 className="text-xl font-bold">Welcome to {roomDetails?.name}'s Room</h2>
           <p className="text-sm">Meeting ID: {roomId} | Participants: {users.length}</p>
         </div>
         <div className="bg-red-500 px-4 py-2 rounded-lg flex items-center">
@@ -370,7 +401,7 @@ const Room = () => {
         <div className="flex-1 overflow-y-auto p-4">
           {/* Full screen view */}
           {fullScreenUser && (
-            <div className="mb-4 bg-white rounded-lg shadow-md overflow-hidden h-3/4 relative">
+            <div className="mb-4 bg-white rounded-lg shadow-md overflow-hidden h-full relative">
               {fullScreenUser.isCameraOff ? (
                 <div className="bg-gray-200 h-full flex items-center justify-center">
                   <span className="text-9xl font-bold text-gray-600">
@@ -451,9 +482,9 @@ const Room = () => {
             </div>
 
             {/* Remote users */}
-            {users.filter(user => user.id !== 'local').map(user => (
+            {users.filter(user => user.id !== 'local' && user.id !== socket.current?.id).map(user => (
               <div 
-                key={user.id} 
+                key={user.id || `user-${user.name}-${Math.random().toString(36).substr(2, 9)}`}
                 className={`bg-white rounded-lg shadow-md overflow-hidden h-48 relative ${user.isSpeaking ? 'ring-2 ring-purple-400' : ''}`}
               >
                 {user.isCameraOff ? (
@@ -502,9 +533,9 @@ const Room = () => {
             <h3 className="font-semibold">Chat</h3>
           </div>
           <div className="flex-1 p-3 overflow-y-auto">
-            {messages.map((msg, index) => (
+            {messages.map((msg) => (
               <div 
-                key={index} 
+                key={`msg-${msg.timestamp || Date.now()}-${msg.sender}`}
                 className={`mb-3 ${msg.isReaction ? 'text-2xl text-center' : ''}`}
               >
                 {!msg.isReaction && (
@@ -513,6 +544,7 @@ const Room = () => {
                 <div>{msg.content}</div>
               </div>
             ))}
+            <div ref={messageEndRef} />
           </div>
           <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-300">
             <div className="flex">
