@@ -10,14 +10,17 @@ const JoinRoom = () => {
   const navigate = useNavigate();
   const roomId = useRef();
   const passcode = useRef();
+  const name = useRef();
   const joinRoomhandler = async () => {
     try {
       const res = await axios.post("http://localhost:8080/api/rooms/join", {
         roomId: roomId.current.value,
         password: passcode.current.value,
+        name: name.current.value,
       });
       if (res.data) {
-        console.log(res.data);
+        const username = res.data.room.name;
+        localStorage.setItem("focusRoomUser", username);
         setModalIsOpen(false);
         navigate(`/room/${roomId.current.value}`);
       }
@@ -48,6 +51,7 @@ const JoinRoom = () => {
             <div className="text-lg font-semibold">Enter Your Name:</div>
             <input
               type="text"
+              ref={name}
               placeholder="Your Name"
               className="border border-gray-300 p-2 rounded-md w-full "
             />

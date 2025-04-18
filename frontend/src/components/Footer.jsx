@@ -13,10 +13,9 @@ export const Footer = () => {
 
         {/* Navigation */}
         <nav className="flex space-x-6 text-sm">
-          <a href="/how-it-works" className="hover:text-blue-500 transition-colors">How it works</a>
-          <a href="/features" className="hover:text-blue-500 transition-colors">Features</a>
-          <a href="/contact" className="hover:text-blue-500 transition-colors">Contact Us</a>
-          {/* <a href="https://github.com/your-github" target="_blank" className="hover:text-blue-500 transition-colors">ContactUs</a> */}
+          <a href="#" className="hover:text-blue-500 transition-colors">How it works</a>
+          <a href="#" className="hover:text-blue-500 transition-colors">Features</a>
+          <a href="#" className="hover:text-blue-500 transition-colors">Contact Us</a>
         </nav>
 
         {/* Social Icons */}
@@ -24,10 +23,10 @@ export const Footer = () => {
           <motion.a whileHover={{ scale: 1.1 }} href="https://github.com/Prince9g/FocusMate" target="_blank">
             <FaGithub className="text-xl hover:text-blue-500" />
           </motion.a>
-          <motion.a whileHover={{ scale: 1.1 }} href="https://twitter.com" target="_blank">
+          <motion.a whileHover={{ scale: 1.1 }} href="https://x.com/Prince03112002" target="_blank">
             <FaTwitter className="text-xl hover:text-blue-500" />
           </motion.a>
-          <motion.a whileHover={{ scale: 1.1 }} href="https://linkedin.com" target="_blank">
+          <motion.a whileHover={{ scale: 1.1 }} href="https://www.linkedin.com/in/prince-sharma-a38a11254" target="_blank">
             <FaLinkedin className="text-xl hover:text-blue-500" />
           </motion.a>
         </div>

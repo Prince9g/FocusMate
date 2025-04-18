@@ -8,12 +8,15 @@ Modal.setAppElement("#root");
 const CreateRoom = () => {
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [roomDetails, setRoomDetails] = useState(null); 
+  const name = useRef();
   const duration = useRef();
 
   const onCreateHandler = async () => {
     try {
+      const userName = name.current.value;
+      localStorage.setItem("focusRoomUser", userName);
       const res = await axios.post("http://localhost:8080/api/rooms/create", {
-        duration: duration.current.value,
+        duration: duration.current.value, name: name.current.value,
       });
 
       if (res.data) {
@@ -53,6 +56,7 @@ const CreateRoom = () => {
               <input
                 type="text"
                 required
+                ref={name}
                 placeholder="Your Name"
                 className="border border-gray-300 p-2 rounded-md w-full"
               />

@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import mongoose from "mongoose";
 import http from "http";
 import { Server } from "socket.io";
 import connectDB from "./utils/db.js";
@@ -16,7 +15,16 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "http://localhost:5173", methods: ["GET", "POST"] },
+  cors: { 
+    origin: "http://localhost:5173", 
+    methods: ["GET", "POST"],
+    credentials: true  // Add this
+  },
+  transports: ['websocket', 'polling'],  // Keep this
+  connectionStateRecovery: {  // Add this
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: true
+  }
 });
 
 app.use(cors());
