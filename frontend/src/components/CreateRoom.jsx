@@ -20,7 +20,6 @@ const CreateRoom = () => {
       });
 
       if (res.data) {
-        console.log(res.data);
         setModalIsOpen(false); 
         setRoomDetails({ roomId: res.data.roomId, passcode: res.data.password });
       }

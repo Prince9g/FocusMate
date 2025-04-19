@@ -7,6 +7,8 @@ import connectDB from "./utils/db.js";
 import roomRoutes from "./routes/room.routes.js";
 import { setupSockets } from "./socket/index.js";
 import analyticsRoutes from "./routes/activity.routes.js";
+import path from "path";
+
 
 
 dotenv.config();
@@ -27,12 +29,17 @@ const io = new Server(server, {
   }
 });
 
+const _dirname = path.resolve();
+
 app.use(cors());
 app.use(express.json());
 app.use("/api/rooms", roomRoutes);
 
 app.use("/analytics", analyticsRoutes);
-
+app.use(express.static(path.join(_dirname, "/frontend/dist")));
+// app.get('*', (_, res)=>{
+//   res.send(path.resolve(_dirname, "frontend", "dist", "index.html"));
+// });
 
 setupSockets(io);
 

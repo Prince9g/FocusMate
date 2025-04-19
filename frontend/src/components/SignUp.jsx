@@ -20,7 +20,6 @@ const SignUp = () => {
     try {
       const res = await axios.post("http://localhost:8080/api/auth/register", formData
       )
-      console.log(res);
       if(res){
         toast.success(res.data.message);
         dispatch(setAuthUser({user: res.data.user, resumes: res.data.resumes}));

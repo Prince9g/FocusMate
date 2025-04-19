@@ -50,7 +50,6 @@ const Room = () => {
 
     // Connection handlers
     const handleConnect = () => {
-      console.log('Socket connected:', socket.current.id);
       setConnectionStatus('connected');
       socket.current.emit('join-room', { roomId, name: userName });
     };
@@ -74,7 +73,6 @@ const Room = () => {
         const res = await axios.get(`http://localhost:8080/api/rooms/${roomId}`);
         if (res.data) {
           setRoomDetails(res.data);
-          console.log("Room details fetched:", res.data);
           setMessages(res.data.messages || []);
           updateTimeLeft(res.data.expiresAt);
           
@@ -99,7 +97,6 @@ const Room = () => {
 
     // Socket event listeners
     const handleRoomDetails = (room) => {
-      console.log("Room details received:", room);
       setRoomDetails(room);
       setMessages(room.messages || []);
       updateTimeLeft(room.expiresAt);
@@ -117,7 +114,6 @@ const Room = () => {
     };
 
     const handleUserConnected = ({ socketId, name, isMuted = false, isCameraOff = false }) => {
-      console.log("User connected:", socketId, name);
       setUsers(prev => {
         if (prev.some(user => user.id === socketId)) return prev;
         return [...prev, { 
@@ -135,7 +131,6 @@ const Room = () => {
     };
 
     const handleUserDisconnected = ({ socketId }) => {
-      console.log("User disconnected:", socketId);
       setUsers(prev => prev.filter(user => user.id !== socketId));
       if (pcRefs.current[socketId]) {
         pcRefs.current[socketId].close();
@@ -149,7 +144,6 @@ const Room = () => {
     };
 
     const handleNewMessage = (message) => {
-      console.log("New message received:", message);
       setMessages(prev => [...prev, message]);
     };
 

@@ -19,7 +19,6 @@ export const setupSockets = (io) => {
   });
 
   io.on("connection", (socket) => {
-    console.log("🔌 New client connected:", socket.id);
     
     // Store roomId to use it in disconnect handler
     const currentRoomId = socket.roomId;
@@ -56,7 +55,7 @@ export const setupSockets = (io) => {
           // Check for existing participant that left
           let rejoiningParticipant = room.participants.find(p => p.name === name && p.leftAt);
           
-          if (rejoingingParticipant) {
+          if (rejoiningParticipant) {
             // Participant is rejoining
             rejoiningParticipant.socketId = socket.id;
             rejoiningParticipant.leftAt = undefined;
