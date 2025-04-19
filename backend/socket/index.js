@@ -19,6 +19,7 @@ export const setupSockets = (io) => {
   });
 
   io.on("connection", (socket) => {
+    console.log("🔌 New client connected:", socket.id);
     
     // Store roomId to use it in disconnect handler
     const currentRoomId = socket.roomId;

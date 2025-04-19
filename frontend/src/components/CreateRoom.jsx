@@ -15,7 +15,7 @@ const CreateRoom = () => {
     try {
       const userName = name.current.value;
       localStorage.setItem("focusRoomUser", userName);
-      const res = await axios.post("https://focusmate-bay5.onrender.com/api/rooms/create", {
+      const res = await axios.post("http://localhost:8080/api/rooms/create", {
         duration: duration.current.value, name: name.current.value,
       });
 
