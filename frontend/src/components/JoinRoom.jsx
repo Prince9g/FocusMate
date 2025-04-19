@@ -13,7 +13,7 @@ const JoinRoom = () => {
   const name = useRef();
   const joinRoomhandler = async () => {
     try {
-      const res = await axios.post("http://localhost:8080/api/rooms/join", {
+      const res = await axios.post("https://focusmate-bay5.onrender.com/api/rooms/join", {
         roomId: roomId.current.value,
         password: passcode.current.value,
         name: name.current.value,

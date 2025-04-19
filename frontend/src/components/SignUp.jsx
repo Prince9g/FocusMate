@@ -18,7 +18,7 @@ const SignUp = () => {
     }
     const dispatch = useDispatch();
     try {
-      const res = await axios.post("http://localhost:8080/api/auth/register", formData
+      const res = await axios.post("https://focusmate-bay5.onrender.com/api/auth/register", formData
       )
       if(res){
         toast.success(res.data.message);

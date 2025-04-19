@@ -15,7 +15,7 @@ const Roome = () => {
 
   // Initialize socket connection on join
   useEffect(() => {
-    socketRef.current = io.connect("http://localhost:8080");
+    socketRef.current = io.connect("https://focusmate-bay5.onrender.com");
 
     // Handle joining the room
     socketRef.current.emit("join-room", { roomId });

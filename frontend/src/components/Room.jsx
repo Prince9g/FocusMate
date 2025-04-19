@@ -38,7 +38,7 @@ const Room = () => {
   // Initialize socket and room
   useEffect(() => {
     // Connect to socket server with reconnection options
-    socket.current = io('http://localhost:8080', {
+    socket.current = io('https://focusmate-bay5.onrender.com/', {
       auth: { roomId, name: userName },
       reconnection: true,
       reconnectionAttempts: 5,
@@ -70,7 +70,7 @@ const Room = () => {
     // Get room details
     const fetchRoomDetails = async () => {
       try {
-        const res = await axios.get(`http://localhost:8080/api/rooms/${roomId}`);
+        const res = await axios.get(`https://focusmate-bay5.onrender.com/api/rooms/${roomId}`);
         if (res.data) {
           setRoomDetails(res.data);
           setMessages(res.data.messages || []);
