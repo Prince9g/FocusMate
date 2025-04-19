@@ -74,16 +74,17 @@ const Room = () => {
         const res = await axios.get(`http://localhost:8080/api/rooms/${roomId}`);
         if (res.data) {
           setRoomDetails(res.data);
+          console.log("Room details fetched:", res.data);
           setMessages(res.data.messages || []);
           updateTimeLeft(res.data.expiresAt);
           
           const participants = res.data.participants
             .filter(p => !p.leftAt)
             .map((p) => ({
-              id: p.socketId,
+              id: p.socketId || `user-${p.name}`, // Handle null socketId
               name: p.name,
-              isMuted: false,
-              isCameraOff: false,
+              isMuted: p.isMuted || false,
+              isCameraOff: p.isCameraOff || false,
               isSpeaking: false
             }));
           setUsers(participants);
@@ -98,19 +99,32 @@ const Room = () => {
 
     // Socket event listeners
     const handleRoomDetails = (room) => {
+      console.log("Room details received:", room);
       setRoomDetails(room);
       setMessages(room.messages || []);
       updateTimeLeft(room.expiresAt);
+      
+      const participants = room.participants
+        .filter(p => !p.leftAt)
+        .map((p) => ({
+          id: p.socketId || `user-${p.name}`, // Handle null socketId
+          name: p.name,
+          isMuted: p.isMuted || false,
+          isCameraOff: p.isCameraOff || false,
+          isSpeaking: false
+        }));
+      setUsers(participants);
     };
 
-    const handleUserConnected = ({ socketId, name }) => {
+    const handleUserConnected = ({ socketId, name, isMuted = false, isCameraOff = false }) => {
+      console.log("User connected:", socketId, name);
       setUsers(prev => {
         if (prev.some(user => user.id === socketId)) return prev;
         return [...prev, { 
           id: socketId, 
           name, 
-          isMuted: false, 
-          isCameraOff: false,
+          isMuted, 
+          isCameraOff,
           isSpeaking: false 
         }];
       });
@@ -121,6 +135,7 @@ const Room = () => {
     };
 
     const handleUserDisconnected = ({ socketId }) => {
+      console.log("User disconnected:", socketId);
       setUsers(prev => prev.filter(user => user.id !== socketId));
       if (pcRefs.current[socketId]) {
         pcRefs.current[socketId].close();
@@ -134,6 +149,7 @@ const Room = () => {
     };
 
     const handleNewMessage = (message) => {
+      console.log("New message received:", message);
       setMessages(prev => [...prev, message]);
     };
 
@@ -158,14 +174,35 @@ const Room = () => {
       }
     };
 
+    const handleJoinError = (error) => {
+      console.error("Join error:", error);
+      alert(`Error joining room: ${error}`);
+      navigate('/');
+    };
+
+    const handleUserUpdated = ({ socketId, isMuted, isCameraOff }) => {
+      setUsers(prev => prev.map(user => {
+        if (user.id === socketId) {
+          return {
+            ...user, 
+            isMuted: isMuted !== undefined ? isMuted : user.isMuted,
+            isCameraOff: isCameraOff !== undefined ? isCameraOff : user.isCameraOff
+          };
+        }
+        return user;
+      }));
+    };
+
     socket.current.on('room-details', handleRoomDetails);
     socket.current.on('user-connected', handleUserConnected);
     socket.current.on('user-disconnected', handleUserDisconnected);
     socket.current.on('new-message', handleNewMessage);
     socket.current.on('signal', handleSignal);
+    socket.current.on('join-error', handleJoinError);
+    socket.current.on('user-updated', handleUserUpdated);
 
-    // Initialize media
-    initLocalMedia();
+    // Initialize media (commented out for now to focus on chat)
+    // initLocalMedia();
 
     return () => {
       socket.current.off('connect', handleConnect);
@@ -176,6 +213,8 @@ const Room = () => {
       socket.current.off('user-disconnected', handleUserDisconnected);
       socket.current.off('new-message', handleNewMessage);
       socket.current.off('signal', handleSignal);
+      socket.current.off('join-error', handleJoinError);
+      socket.current.off('user-updated', handleUserUpdated);
       
       if (socket.current) {
         socket.current.disconnect();
@@ -233,6 +272,9 @@ const Room = () => {
       });
     } catch (err) {
       console.error("Error accessing media devices:", err);
+      // Continue without media if access fails
+      setIsCameraOff(true);
+      setIsMuted(true);
     }
   };
 
@@ -288,12 +330,24 @@ const Room = () => {
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (message.trim() && socket.current?.connected) {
+      // Create the message object
+      const newMessage = {
+        sender: userName,
+        content: message,
+        isReaction: false,
+        timestamp: new Date()
+      };
+      
+      // Emit to socket server
       socket.current.emit('send-message', {
         roomId,
         sender: userName,
         content: message,
         isReaction: false
       });
+      
+      // Update local state
+      // setMessages(prev => [...prev, newMessage]);
       setMessage('');
     }
   };
@@ -301,12 +355,24 @@ const Room = () => {
   // Handle sending reactions
   const handleSendReaction = (reaction) => {
     if (socket.current?.connected) {
+      // Create the reaction message
+      const reactionMessage = {
+        sender: userName,
+        content: reaction,
+        isReaction: true,
+        timestamp: new Date()
+      };
+      
+      // Emit to socket server
       socket.current.emit('send-message', {
         roomId,
         sender: userName,
         content: reaction,
         isReaction: true
       });
+      
+      // Update local state
+      setMessages(prev => [...prev, reactionMessage]);
       setActiveReaction(reaction);
       setShowReactions(false);
       setTimeout(() => setActiveReaction(null), 2000);
@@ -328,6 +394,8 @@ const Room = () => {
           isMuted: !isMuted 
         });
       }
+    } else {
+      setIsMuted(!isMuted);
     }
   };
 
@@ -346,6 +414,8 @@ const Room = () => {
           isCameraOff: !isCameraOff 
         });
       }
+    } else {
+      setIsCameraOff(!isCameraOff);
     }
   };
 
@@ -358,6 +428,13 @@ const Room = () => {
   const formatTime = (time) => {
     return time < 10 ? `0${time}` : time;
   };
+
+  useEffect(() => {
+    // Initialize media once connection is established
+    if (connectionStatus === 'connected') {
+      initLocalMedia();
+    }
+  }, [connectionStatus]);
 
   if (connectionStatus !== 'connected') {
     return (
@@ -533,9 +610,9 @@ const Room = () => {
             <h3 className="font-semibold">Chat</h3>
           </div>
           <div className="flex-1 p-3 overflow-y-auto">
-            {messages.map((msg) => (
+            {messages.map((msg, index) => (
               <div 
-                key={`msg-${msg.timestamp || Date.now()}-${msg.sender}`}
+                key={`msg-${index}-${msg.timestamp || Date.now()}-${msg.sender}`}
                 className={`mb-3 ${msg.isReaction ? 'text-2xl text-center' : ''}`}
               >
                 {!msg.isReaction && (
