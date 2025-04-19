@@ -5,9 +5,13 @@ export const setupSockets = (io) => {
   io.use((socket, next) => {
     try {
       const { roomId, name } = socket.handshake.auth;
+      
       if (!roomId || !name) {
         return next(new Error("Authentication failed"));
       }
+      
+      socket.roomId = roomId;
+      socket.userName = name;
       next();
     } catch (err) {
       next(new Error("Authentication error"));
@@ -16,68 +20,62 @@ export const setupSockets = (io) => {
 
   io.on("connection", (socket) => {
     console.log("🔌 New client connected:", socket.id);
-    let currentRoomId = null;
-
-    // Helper function to get participant count
-    const getParticipantCount = async (roomId) => {
-      const room = await Room.findOne({ roomId });
-      return room ? room.participants.filter(p => !p.leftAt).length : 0;
-    };
+    
+    // Store roomId to use it in disconnect handler
+    const currentRoomId = socket.roomId;
+    const currentUserName = socket.userName;
 
     // ======================
     // 1. Room Joining Logic
     // ======================
-    socket.on("join-room", async ({ roomId, name, password }) => {
+    socket.on("join-room", async ({ roomId, name }) => {
       try {
-        currentRoomId = roomId;
+        // Validate room exists
+        const room = await Room.findOne({ roomId });
         
-        // Verify room exists and password matches
-        const room = await Room.findOne({ roomId, password });
         if (!room) {
-          socket.emit("join-error", "Invalid room ID or password");
+          socket.emit("join-error", "Invalid room ID");
           return;
         }
 
-        // Check if room is expired
         if (room.expiresAt < new Date()) {
           socket.emit("join-error", "This room has expired");
           return;
         }
         
-        // Check if name is taken by active participant
-        const nameExists = room.participants.some(
-          p => p.name === name && !p.leftAt && p.socketId !== socket.id
-        );
-        if (nameExists) {
-          socket.emit("join-error", "Name already taken in this room");
-          return;
-        }
-
         // Join the socket room
         socket.join(roomId);
-
-        // Add/update participant
-        let participant = room.participants.find(p => p.name === name);
+        
+        // Find or create participant
+        let participant = room.participants.find(p => p.name === name && !p.leftAt);
+        
         if (participant) {
-          // Reconnecting user - update socket ID and clear leftAt
+          // Update existing participant
           participant.socketId = socket.id;
-          participant.leftAt = undefined;
         } else {
-          // New user
-          participant = {
-            name,
-            socketId: socket.id,
-            joinedAt: new Date(),
-            isMuted: false,
-            isCameraOff: false
-          };
-          room.participants.push(participant);
+          // Check for existing participant that left
+          let rejoiningParticipant = room.participants.find(p => p.name === name && p.leftAt);
+          
+          if (rejoingingParticipant) {
+            // Participant is rejoining
+            rejoiningParticipant.socketId = socket.id;
+            rejoiningParticipant.leftAt = undefined;
+          } else {
+            // New participant
+            room.participants.push({
+              name,
+              socketId: socket.id,
+              joinedAt: new Date(),
+              isMuted: false,
+              isCameraOff: false
+            });
+          }
         }
 
         await room.save();
 
-        // Get updated participant list
-        const participants = room.participants
+        // Get active participants
+        const activeParticipants = room.participants
           .filter(p => !p.leftAt)
           .map(p => ({
             socketId: p.socketId,
@@ -86,21 +84,21 @@ export const setupSockets = (io) => {
             isCameraOff: p.isCameraOff || false
           }));
 
-        // Notify others in the room about the new user
+        // Notify others about the new user
         socket.to(roomId).emit("user-connected", {
           socketId: socket.id,
           name,
-          isMuted: participant.isMuted,
-          isCameraOff: participant.isCameraOff
+          isMuted: false,
+          isCameraOff: false
         });
 
-        // Send full room state to the new user
+        // Send room details to the new user
         socket.emit("room-details", {
           roomId: room.roomId,
           name: room.name,
           expiresAt: room.expiresAt,
-          participants,
-          messages: room.messages
+          participants: activeParticipants,
+          messages: room.messages || []
         });
 
         // Log activity
@@ -121,7 +119,6 @@ export const setupSockets = (io) => {
     // 2. WebRTC Signaling
     // ======================
     socket.on("signal", ({ to, signal }) => {
-      // Forward WebRTC signaling data to the target user
       if (to && signal) {
         io.to(to).emit("signal", { from: socket.id, signal });
       }
@@ -132,10 +129,7 @@ export const setupSockets = (io) => {
     // ======================
     socket.on("send-message", async ({ roomId, sender, content, isReaction }) => {
       try {
-        if (!roomId || !sender || !content) {
-          console.error("Invalid message data");
-          return;
-        }
+        if (!roomId || !sender || !content) return;
 
         const newMessage = {
           sender,
@@ -144,16 +138,13 @@ export const setupSockets = (io) => {
           timestamp: new Date()
         };
 
-        // Save message to database
         await Room.findOneAndUpdate(
           { roomId },
           { $push: { messages: newMessage } },
           { new: true }
         );
 
-        // Broadcast to all in the room including sender
         io.to(roomId).emit("new-message", newMessage);
-
       } catch (err) {
         console.error("Message send error:", err);
       }
@@ -177,13 +168,11 @@ export const setupSockets = (io) => {
 
         await room.save();
 
-        // Broadcast update to room
         socket.to(roomId).emit("user-updated", {
           socketId: socket.id,
           isMuted,
           isCameraOff
         });
-
       } catch (err) {
         console.error("User update error:", err);
       }
@@ -192,16 +181,13 @@ export const setupSockets = (io) => {
     // ======================
     // 5. Disconnection Handling
     // ======================
-    const handleDisconnect = async () => {
-      console.log("❌ Client disconnected:", socket.id);
-
+    const handleDisconnection = async () => {
       try {
         if (!currentRoomId) return;
 
         const room = await Room.findOne({ roomId: currentRoomId });
         if (!room) return;
 
-        // Mark participant as left
         const participant = room.participants.find(
           p => p.socketId === socket.id && !p.leftAt
         );
@@ -210,8 +196,8 @@ export const setupSockets = (io) => {
           participant.leftAt = new Date();
           await room.save();
 
-          // Notify room
-          io.to(currentRoomId).emit("user-disconnected", {
+          // Notify other users
+          socket.to(currentRoomId).emit("user-disconnected", {
             socketId: socket.id,
             name: participant.name
           });
@@ -223,13 +209,16 @@ export const setupSockets = (io) => {
           { leftAt: new Date() }
         );
 
+        // Leave the socket room
+        socket.leave(currentRoomId);
       } catch (err) {
         console.error("Disconnect handling error:", err);
       }
     };
 
-    socket.on("disconnect", handleDisconnect);
-    socket.on("leave-room", handleDisconnect);
+    // Handle both voluntary leave and disconnect
+    socket.on("leave-room", handleDisconnection);
+    socket.on("disconnect", handleDisconnection);
 
     // ======================
     // 6. Room Status Checks
@@ -237,21 +226,23 @@ export const setupSockets = (io) => {
     socket.on("check-room", async ({ roomId }, callback) => {
       try {
         const room = await Room.findOne({ roomId });
-        if (!room) {
-          return callback({ exists: false });
-        }
-
         callback({
-          exists: true,
+          exists: !!room,
           requiresPassword: true,
-          name: room.name,
-          participantCount: room.participants.filter(p => !p.leftAt).length,
+          name: room?.name,
+          participantCount: room?.participants.filter(p => !p.leftAt).length || 0,
         });
-
       } catch (err) {
         console.error("Room check error:", err);
         callback({ error: "Server error checking room status" });
       }
+    });
+
+    // ======================
+    // 7. Error Handling
+    // ======================
+    socket.on("error", (err) => {
+      console.error("Socket error:", err);
     });
   });
 };
