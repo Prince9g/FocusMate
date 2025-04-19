@@ -119,9 +119,31 @@ export const setupSockets = (io) => {
     // 2. WebRTC Signaling
     // ======================
     socket.on("signal", ({ to, signal }) => {
-      if (to && signal) {
-        io.to(to).emit("signal", { from: socket.id, signal });
+      if (!to || !signal) {
+        console.warn("Invalid signal:", { to, signalType: signal?.type });
+        return;
       }
+      
+      console.log(`Signal from ${socket.id} to ${to}: ${signal.type}`);
+      
+      // Forward the signal
+      io.to(to).emit("signal", { 
+        from: socket.id, 
+        signal 
+      });
+    });
+
+    // Add heartbeat to keep connections alive
+    socket.on("heartbeat", () => {
+      socket.emit("heartbeat-ack");
+    });
+
+    // Add user speaking notification
+    socket.on("speaking", ({ roomId, isSpeaking }) => {
+      socket.to(roomId).emit("user-speaking", {
+        socketId: socket.id,
+        isSpeaking
+      });
     });
 
     // ======================
@@ -228,7 +250,7 @@ export const setupSockets = (io) => {
         const room = await Room.findOne({ roomId });
         callback({
           exists: !!room,
-          requiresPassword: true,
+          requiresPassword: room?.password ? true : false,
           name: room?.name,
           participantCount: room?.participants.filter(p => !p.leftAt).length || 0,
         });
@@ -239,7 +261,16 @@ export const setupSockets = (io) => {
     });
 
     // ======================
-    // 7. Error Handling
+    // 7. Debugging WebRTC
+    // ======================
+    socket.on("webrtc-debug", ({ roomId, message, data }) => {
+      console.log(`WebRTC Debug [${roomId}:${socket.id}]: ${message}`, data);
+      // Optionally broadcast to other room participants for debugging
+      // socket.to(roomId).emit("webrtc-debug", { from: socket.id, message, data });
+    });
+
+    // ======================
+    // 8. Error Handling
     // ======================
     socket.on("error", (err) => {
       console.error("Socket error:", err);

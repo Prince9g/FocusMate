@@ -26,14 +26,152 @@ const Room = () => {
   
   const videoRefs = useRef({});
   const pcRefs = useRef({});
+  const pendingCandidates = useRef({});
   const userName = localStorage.getItem("focusRoomUser") || "Guest";
   const reactions = ['👍', '👎', '😊', '🎉', '❤️', '😂'];
   const messageEndRef = useRef(null);
+  const timersRef = useRef({});
+  const mediaConstraints = {
+    audio: true,
+    video: {
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      facingMode: 'user'
+    }
+  };
+
+  // Helper to determine if peer connection exists and is connected
+  const isPeerConnected = (userId) => {
+    return pcRefs.current[userId] && 
+           ['connected', 'completed'].includes(pcRefs.current[userId].iceConnectionState);
+  };
 
   // Scroll to bottom of messages
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Set up WebRTC peer connection
+  const setupPeerConnection = (userId) => {
+    console.log(`Setting up peer connection for ${userId}`);
+    
+    // Close existing connection if any
+    if (pcRefs.current[userId]) {
+      console.log(`Closing existing connection for ${userId}`);
+      pcRefs.current[userId].close();
+      delete pcRefs.current[userId];
+    }
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    });
+
+    pcRefs.current[userId] = pc;
+
+    // Initialize pending candidates array if not exists
+    if (!pendingCandidates.current[userId]) {
+      pendingCandidates.current[userId] = [];
+    }
+
+    // Add local tracks to the connection
+    if (localStream) {
+      console.log(`Adding ${localStream.getTracks().length} local tracks to connection with ${userId}`);
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+    }
+
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log(`Sending ICE candidate to ${userId}`);
+        socket.current.emit('signal', {
+          to: userId,
+          signal: {
+            type: 'candidate',
+            candidate: event.candidate
+          }
+        });
+      }
+    };
+
+    // Handle connection state changes
+    pc.onconnectionstatechange = () => {
+      console.log(`Connection state with ${userId}: ${pc.connectionState}`);
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        // Attempt to reconnect
+        setTimeout(() => {
+          if (pc.connectionState !== 'connected' && pc.connectionState !== 'connecting') {
+            console.log(`Attempting to reconnect to ${userId}`);
+            setupPeerConnection(userId);
+          }
+        }, 2000);
+      }
+    };
+
+    // Handle ICE connection state changes
+    pc.oniceconnectionstatechange = () => {
+      console.log(`ICE connection state with ${userId}: ${pc.iceConnectionState}`);
+      
+      // Update UI when connection is established or lost
+      if (['connected', 'completed'].includes(pc.iceConnectionState)) {
+        setUsers(prev => prev.map(user => {
+          if (user.id === userId) {
+            return { ...user, connected: true };
+          }
+          return user;
+        }));
+      } else if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
+        setUsers(prev => prev.map(user => {
+          if (user.id === userId) {
+            return { ...user, connected: false };
+          }
+          return user;
+        }));
+      }
+    };
+
+    // Handle remote tracks
+    pc.ontrack = (event) => {
+      console.log(`Received tracks from ${userId}`, event.streams);
+      if (event.streams && event.streams[0]) {
+        const stream = event.streams[0];
+        console.log(`Setting remote stream for ${userId}`);
+        
+        setRemoteStreams(prev => {
+          const newStreams = { ...prev };
+          newStreams[userId] = stream;
+          return newStreams;
+        });
+      }
+    };
+
+    // Process any pending ICE candidates
+    if (pendingCandidates.current[userId].length > 0) {
+      console.log(`Processing ${pendingCandidates.current[userId].length} pending candidates for ${userId}`);
+      
+      const processPendingCandidates = async () => {
+        if (pc.remoteDescription) {
+          for (const candidate of pendingCandidates.current[userId]) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              console.log(`Added pending ICE candidate for ${userId}`);
+            } catch (err) {
+              console.error(`Error adding pending ICE candidate for ${userId}:`, err);
+            }
+          }
+          pendingCandidates.current[userId] = [];
+        }
+      };
+      
+      processPendingCandidates();
+    }
+
+    return pc;
+  };
 
   // Initialize socket and room
   useEffect(() => {
@@ -79,11 +217,12 @@ const Room = () => {
           const participants = res.data.participants
             .filter(p => !p.leftAt)
             .map((p) => ({
-              id: p.socketId || `user-${p.name}`, // Handle null socketId
+              id: p.socketId || `user-${p.name}`,
               name: p.name,
               isMuted: p.isMuted || false,
               isCameraOff: p.isCameraOff || false,
-              isSpeaking: false
+              isSpeaking: false,
+              connected: false
             }));
           setUsers(participants);
         }
@@ -104,16 +243,20 @@ const Room = () => {
       const participants = room.participants
         .filter(p => !p.leftAt)
         .map((p) => ({
-          id: p.socketId || `user-${p.name}`, // Handle null socketId
+          id: p.socketId || `user-${p.name}`,
           name: p.name,
           isMuted: p.isMuted || false,
           isCameraOff: p.isCameraOff || false,
-          isSpeaking: false
+          isSpeaking: false,
+          connected: false
         }));
       setUsers(participants);
     };
 
-    const handleUserConnected = ({ socketId, name, isMuted = false, isCameraOff = false }) => {
+    const handleUserConnected = async ({ socketId, name, isMuted = false, isCameraOff = false }) => {
+      console.log('User connected:', socketId, name);
+      
+      // Add user to users state if not already present
       setUsers(prev => {
         if (prev.some(user => user.id === socketId)) return prev;
         return [...prev, { 
@@ -121,26 +264,52 @@ const Room = () => {
           name, 
           isMuted, 
           isCameraOff,
-          isSpeaking: false 
+          isSpeaking: false,
+          connected: false
         }];
       });
-      
-      if (socketId !== socket.current.id && localStream) {
-        createPeerConnection(socketId);
+
+      // Only initiate connection if we're the "lower" ID to avoid duplicate connections
+      if (socket.current.id < socketId && localStream) {
+        console.log(`Initiating connection with new user ${socketId}`);
+        const pc = setupPeerConnection(socketId);
+        
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          
+          socket.current.emit('signal', {
+            to: socketId,
+            signal: pc.localDescription
+          });
+        } catch (err) {
+          console.error('Error creating offer:', err);
+        }
       }
     };
 
     const handleUserDisconnected = ({ socketId }) => {
+      console.log('User disconnected:', socketId);
+      
       setUsers(prev => prev.filter(user => user.id !== socketId));
+      
+      // Close and clean up peer connection
       if (pcRefs.current[socketId]) {
         pcRefs.current[socketId].close();
         delete pcRefs.current[socketId];
       }
+      
+      // Remove remote stream
       setRemoteStreams(prev => {
         const newStreams = {...prev};
         delete newStreams[socketId];
         return newStreams;
       });
+      
+      // Clean up pending candidates
+      if (pendingCandidates.current[socketId]) {
+        delete pendingCandidates.current[socketId];
+      }
     };
 
     const handleNewMessage = (message) => {
@@ -148,20 +317,69 @@ const Room = () => {
     };
 
     const handleSignal = async ({ from, signal }) => {
+      if (!from) {
+        console.warn("Signal missing sender ID");
+        return;
+      }
+      
+      console.log(`Received ${signal.type} signal from ${from}`);
+      
       try {
+        // Ensure we have a peer connection for this user
         if (!pcRefs.current[from]) {
-          await createPeerConnection(from);
+          console.log('Creating new peer connection for', from);
+          setupPeerConnection(from);
         }
         
+        const pc = pcRefs.current[from];
+        
         if (signal.type === 'offer') {
-          await pcRefs.current[from].setRemoteDescription(new RTCSessionDescription(signal));
-          const answer = await pcRefs.current[from].createAnswer();
-          await pcRefs.current[from].setLocalDescription(answer);
-          socket.current.emit('signal', { to: from, signal: answer });
-        } else if (signal.type === 'answer') {
-          await pcRefs.current[from].setRemoteDescription(new RTCSessionDescription(signal));
-        } else if (signal.type === 'candidate') {
-          await pcRefs.current[from].addIceCandidate(new RTCIceCandidate(signal));
+          console.log('Processing offer from', from);
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          
+          // Process any pending ICE candidates
+          if (pendingCandidates.current[from] && pendingCandidates.current[from].length > 0) {
+            console.log(`Processing ${pendingCandidates.current[from].length} pending candidates after offer`);
+            
+            for (const candidate of pendingCandidates.current[from]) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+            pendingCandidates.current[from] = [];
+          }
+          
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          
+          socket.current.emit('signal', {
+            to: from,
+            signal: answer
+          });
+        } 
+        else if (signal.type === 'answer') {
+          console.log('Processing answer from', from);
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          
+          // Process any pending ICE candidates
+          if (pendingCandidates.current[from] && pendingCandidates.current[from].length > 0) {
+            console.log(`Processing ${pendingCandidates.current[from].length} pending candidates after answer`);
+            
+            for (const candidate of pendingCandidates.current[from]) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+            pendingCandidates.current[from] = [];
+          }
+        } 
+        else if (signal.type === 'candidate' && signal.candidate) {
+          if (pc.remoteDescription) {
+            console.log('Adding ICE candidate from', from);
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } else {
+            console.log('Queuing ICE candidate from', from);
+            if (!pendingCandidates.current[from]) {
+              pendingCandidates.current[from] = [];
+            }
+            pendingCandidates.current[from].push(signal.candidate);
+          }
         }
       } catch (err) {
         console.error('Error handling signal:', err);
@@ -187,6 +405,18 @@ const Room = () => {
       }));
     };
 
+    const handleUserSpeaking = ({ socketId, isSpeaking }) => {
+      setUsers(prev => prev.map(user => {
+        if (user.id === socketId) {
+          return {
+            ...user,
+            isSpeaking
+          };
+        }
+        return user;
+      }));
+    };
+
     socket.current.on('room-details', handleRoomDetails);
     socket.current.on('user-connected', handleUserConnected);
     socket.current.on('user-disconnected', handleUserDisconnected);
@@ -194,11 +424,23 @@ const Room = () => {
     socket.current.on('signal', handleSignal);
     socket.current.on('join-error', handleJoinError);
     socket.current.on('user-updated', handleUserUpdated);
+    socket.current.on('user-speaking', handleUserSpeaking);
 
-    // Initialize media (commented out for now to focus on chat)
-    // initLocalMedia();
+    // Heartbeat to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      if (socket.current?.connected) {
+        socket.current.emit('heartbeat');
+      }
+    }, 30000);
 
     return () => {
+      // Clean up all timers
+      Object.values(timersRef.current).forEach(timers => {
+        timers.forEach(timer => clearTimeout(timer));
+      });
+      
+      clearInterval(heartbeatInterval);
+      
       socket.current.off('connect', handleConnect);
       socket.current.off('disconnect', handleDisconnect);
       socket.current.off('connect_error', handleConnectError);
@@ -209,12 +451,18 @@ const Room = () => {
       socket.current.off('signal', handleSignal);
       socket.current.off('join-error', handleJoinError);
       socket.current.off('user-updated', handleUserUpdated);
+      socket.current.off('user-speaking', handleUserSpeaking);
       
       if (socket.current) {
         socket.current.disconnect();
       }
       
-      Object.values(pcRefs.current).forEach(pc => pc.close());
+      // Clean up all peer connections
+      Object.values(pcRefs.current).forEach(pc => {
+        if (pc && pc.close) pc.close();
+      });
+      
+      // Stop local media tracks
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
       }
@@ -245,86 +493,156 @@ const Room = () => {
     return () => clearInterval(timer);
   };
 
-  // Initialize local media stream
-  const initLocalMedia = async () => {
+  // Set up volume analyzer for speaking detection
+  const setupVolumeDetection = (stream) => {
+    if (!stream) return null;
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true
-      });
-      setLocalStream(stream);
+      const audioContext = new AudioContext();
+      const analyzer = audioContext.createAnalyser();
+      const microphone = audioContext.createMediaStreamSource(stream);
+      const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
       
-      if (videoRefs.current['local']) {
-        videoRefs.current['local'].srcObject = stream;
-      }
+      analyzer.smoothingTimeConstant = 0.8;
+      analyzer.fftSize = 1024;
       
-      // Create peer connections for existing users
-      users.forEach(user => {
-        if (user.id !== socket.current?.id) {
-          createPeerConnection(user.id);
+      microphone.connect(analyzer);
+      analyzer.connect(scriptProcessor);
+      scriptProcessor.connect(audioContext.destination);
+      
+      const speakingThreshold = -50;
+      let speaking = false;
+      let speakingTimer = null;
+      
+      scriptProcessor.onaudioprocess = function() {
+        const array = new Uint8Array(analyzer.frequencyBinCount);
+        analyzer.getByteFrequencyData(array);
+        
+        const average = array.reduce((a, b) => a + b) / array.length;
+        const volume = 20 * Math.log10(average / 255);
+        
+        const isSpeakingNow = volume > speakingThreshold;
+        
+        if (isSpeakingNow !== speaking) {
+          clearTimeout(speakingTimer);
+          
+          speakingTimer = setTimeout(() => {
+            if (isSpeakingNow !== speaking) {
+              speaking = isSpeakingNow;
+              
+              if (socket.current?.connected) {
+                socket.current.emit('speaking', {
+                  roomId,
+                  isSpeaking: speaking
+                });
+              }
+            }
+          }, isSpeakingNow ? 100 : 500);
         }
-      });
+      };
+      
+      return () => {
+        scriptProcessor.disconnect();
+        analyzer.disconnect();
+        microphone.disconnect();
+        if (audioContext.state !== 'closed') {
+          audioContext.close();
+        }
+      };
     } catch (err) {
-      console.error("Error accessing media devices:", err);
-      // Continue without media if access fails
-      setIsCameraOff(true);
-      setIsMuted(true);
+      console.error("Error setting up volume detection:", err);
+      return null;
     }
   };
 
-  // Create peer connection
-  const createPeerConnection = async (socketId) => {
+  // Initialize local media stream
+  const initLocalMedia = async () => {
     try {
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      console.log('Got local media stream');
       
-      pcRefs.current[socketId] = pc;
+      setLocalStream(stream);
       
-      // Add local stream if available
-      if (localStream) {
-        localStream.getTracks().forEach(track => {
-          pc.addTrack(track, localStream);
-        });
-      }
+      // Set up volume detection for speaking indication
+      const cleanupVolumeDetection = setupVolumeDetection(stream);
       
-      // Handle remote stream
-      pc.ontrack = (event) => {
-        setRemoteStreams(prev => ({
-          ...prev,
-          [socketId]: event.streams[0]
-        }));
+      return () => {
+        if (cleanupVolumeDetection) cleanupVolumeDetection();
       };
-      
-      // Handle ICE candidates
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.current.emit('signal', {
-            to: socketId,
-            signal: event.candidate
-          });
-        }
-      };
-      
-      // Create offer for new connections
-      if (socketId !== socket.current?.id) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.current.emit('signal', {
-          to: socketId,
-          signal: offer
-        });
-      }
     } catch (err) {
-      console.error('Error creating peer connection:', err);
+      console.error("Error accessing media devices:", err);
+      setIsCameraOff(true);
+      setIsMuted(true);
+      alert(`Media access error: ${err.message}. You'll join in text-only mode.`);
+      return null;
     }
   };
+
+  // Create peer connections for each user after local media is initialized
+  useEffect(() => {
+    if (!localStream || !socket.current || !socket.current.connected) return;
+    
+    console.log(`Local stream acquired, setting up peer connections with ${users.length} users`);
+    
+    // Create peer connections for each user
+    users.forEach(user => {
+      if (user.id !== socket.current.id && !pcRefs.current[user.id]) {
+        console.log(`Initializing connection with user ${user.id}`);
+        const pc = setupPeerConnection(user.id);
+        
+        // Create offer from our side if our ID is "smaller"
+        if (socket.current.id < user.id) {
+          console.log(`Creating offer for ${user.id} because our ID is lower`);
+          
+          pc.createOffer()
+            .then(offer => {
+              console.log(`Setting local description for ${user.id}`);
+              return pc.setLocalDescription(offer);
+            })
+            .then(() => {
+              console.log(`Sending offer to ${user.id}`);
+              socket.current.emit('signal', {
+                to: user.id,
+                signal: pc.localDescription
+              });
+            })
+            .catch(err => console.error(`Error creating offer for ${user.id}:`, err));
+        } else {
+          console.log(`Waiting for offer from ${user.id} because our ID is higher`);
+        }
+      }
+    });
+  }, [localStream, socket.current?.connected, users]);
+
+  // Update video elements when streams change
+  useEffect(() => {
+    // Set local video
+    if (localStream && videoRefs.current['local']) {
+      console.log('Updating local video ref');
+      videoRefs.current['local'].srcObject = localStream;
+    }
+    
+    // Set remote videos
+    Object.entries(remoteStreams).forEach(([userId, stream]) => {
+      if (videoRefs.current[userId]) {
+        console.log(`Updating video ref for ${userId}`);
+        videoRefs.current[userId].srcObject = stream;
+      }
+    });
+  }, [localStream, remoteStreams]);
+
+  // Initialize media once connection is established
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      console.log('Connection established, initializing media');
+      initLocalMedia();
+    }
+  }, [connectionStatus]);
 
   // Handle sending messages
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (message.trim() && socket.current?.connected) {
-      // Create the message object
       const newMessage = {
         sender: userName,
         content: message,
@@ -332,7 +650,6 @@ const Room = () => {
         timestamp: new Date()
       };
       
-      // Emit to socket server
       socket.current.emit('send-message', {
         roomId,
         sender: userName,
@@ -340,8 +657,6 @@ const Room = () => {
         isReaction: false
       });
       
-      // Update local state
-      // setMessages(prev => [...prev, newMessage]);
       setMessage('');
     }
   };
@@ -349,7 +664,6 @@ const Room = () => {
   // Handle sending reactions
   const handleSendReaction = (reaction) => {
     if (socket.current?.connected) {
-      // Create the reaction message
       const reactionMessage = {
         sender: userName,
         content: reaction,
@@ -357,7 +671,6 @@ const Room = () => {
         timestamp: new Date()
       };
       
-      // Emit to socket server
       socket.current.emit('send-message', {
         roomId,
         sender: userName,
@@ -365,51 +678,48 @@ const Room = () => {
         isReaction: true
       });
       
-      // Update local state
-      setMessages(prev => [...prev, reactionMessage]);
       setActiveReaction(reaction);
       setShowReactions(false);
+      
       setTimeout(() => setActiveReaction(null), 2000);
     }
   };
 
   // Toggle mute
   const toggleMute = () => {
+    const newMuteState = !isMuted;
+    setIsMuted(newMuteState);
+    
     if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !track.enabled;
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = !newMuteState;
       });
-      setIsMuted(!isMuted);
-      
-      if (socket.current?.connected) {
-        socket.current.emit('user-update', { 
-          roomId, 
-          isMuted: !isMuted 
-        });
-      }
-    } else {
-      setIsMuted(!isMuted);
+    }
+    
+    if (socket.current?.connected) {
+      socket.current.emit('user-update', { 
+        roomId, 
+        isMuted: newMuteState 
+      });
     }
   };
 
   // Toggle camera
   const toggleCamera = () => {
+    const newCameraState = !isCameraOff;
+    setIsCameraOff(newCameraState);
+    
     if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !track.enabled;
+      localStream.getVideoTracks().forEach(track => {
+        track.enabled = !newCameraState;
       });
-      setIsCameraOff(!isCameraOff);
-      
-      if (socket.current?.connected) {
-        socket.current.emit('user-update', { 
-          roomId, 
-          isCameraOff: !isCameraOff 
-        });
-      }
-    } else {
-      setIsCameraOff(!isCameraOff);
+    }
+    
+    if (socket.current?.connected) {
+      socket.current.emit('user-update', { 
+        roomId, 
+        isCameraOff: newCameraState 
+      });
     }
   };
 
@@ -423,12 +733,27 @@ const Room = () => {
     return time < 10 ? `0${time}` : time;
   };
 
-  useEffect(() => {
-    // Initialize media once connection is established
-    if (connectionStatus === 'connected') {
-      initLocalMedia();
+  // Leave room gracefully
+  const leaveRoom = () => {
+    console.log('Leaving room');
+    
+    if (socket.current) {
+      socket.current.emit('leave-room', { roomId });
+      socket.current.disconnect();
     }
-  }, [connectionStatus]);
+    
+    // Clean up media
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Clean up peer connections
+    Object.values(pcRefs.current).forEach(pc => {
+      if (pc && pc.close) pc.close();
+    });
+    
+    navigate('/');
+  };
 
   if (connectionStatus !== 'connected') {
     return (
@@ -483,17 +808,26 @@ const Room = () => {
                 <div className="bg-gray-800 h-full flex items-center justify-center text-white text-xl">
                   {fullScreenUser.id === 'local' ? (
                     <video 
-                      ref={el => videoRefs.current['local'] = el}
+                      ref={el => {
+                        videoRefs.current['local'] = el;
+                        if (el && localStream) {
+                          el.srcObject = localStream;
+                        }
+                      }}
                       autoPlay 
                       muted 
                       className="h-full w-full object-cover"
                     />
                   ) : remoteStreams[fullScreenUser.id] ? (
                     <video
-                      ref={el => videoRefs.current[fullScreenUser.id] = el}
+                      ref={el => {
+                        videoRefs.current[fullScreenUser.id] = el;
+                        if (el && remoteStreams[fullScreenUser.id]) {
+                          el.srcObject = remoteStreams[fullScreenUser.id];
+                        }
+                      }}
                       autoPlay
                       className="h-full w-full object-cover"
-                      srcObject={remoteStreams[fullScreenUser.id]}
                     />
                   ) : (
                     <span>Loading {fullScreenUser.name}'s video...</span>
@@ -555,7 +889,7 @@ const Room = () => {
             {/* Remote users */}
             {users.filter(user => user.id !== 'local' && user.id !== socket.current?.id).map(user => (
               <div 
-                key={user.id || `user-${user.name}-${Math.random().toString(36).substr(2, 9)}`}
+                key={user.id}
                 className={`bg-white rounded-lg shadow-md overflow-hidden h-48 relative ${user.isSpeaking ? 'ring-2 ring-purple-400' : ''}`}
               >
                 {user.isCameraOff ? (
@@ -571,7 +905,6 @@ const Room = () => {
                         ref={el => videoRefs.current[user.id] = el}
                         autoPlay
                         className="h-full w-full object-cover"
-                        srcObject={remoteStreams[user.id]}
                       />
                     ) : (
                       <span>Connecting to {user.name}...</span>
@@ -678,10 +1011,7 @@ const Room = () => {
         </div>
         
         <button 
-          onClick={() => {
-            if (socket.current) socket.current.disconnect();
-            navigate('/');
-          }}
+          onClick={leaveRoom}
           className="p-3 rounded-full bg-red-500 text-white hover:bg-red-600"
         >
           <IoMdExit />
