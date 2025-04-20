@@ -180,22 +180,22 @@ export const MovingText = () => {
   return (
     <section
       ref={targetRef}
-      className="h-[120vh] bg-neutral-50 text-neutral-950 relative overflow-hidden"
+      className="md:h-[120vh] bg-neutral-50 dark:bg-slate-900 text-neutral-950 relative overflow-hidden"
     >
-      <div className="sticky top-0 h-screen flex flex-col justify-center">
+      <div className="sticky top-0 md:h-screen flex flex-col justify-center">
         {/* Top row - moves left */}
-        <motion.div style={{ x: leftX }} className="flex gap-8 py-4 w-max">
+        <motion.div style={{ x: leftX }} className="flex gap-5 md:gap-8 py-4 w-max">
           {[...features, ...features, ...features].map((feature, index) => (
             <div
               key={`top-${index}`}
-              className={`flex-shrink-0 w-64 h-80 rounded-2xl p-6 flex flex-col items-center ${feature.color}`}
+              className={`flex-shrink-0 w-48 h-56 md:w-64 md:h-80 rounded-2xl p-6 flex flex-col items-center ${feature.color}`}
             >
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="mb-4">{feature.icon}</div>
                 <h3 className="text-xl font-bold mb-2 text-center">
                   {feature.title}
                 </h3>
-                <p className="text-sm text-center">{feature.description}</p>
+                <p className="hidden md:block text-sm text-center">{feature.description}</p>
               </div>
             </div>
           ))}
@@ -204,16 +204,16 @@ export const MovingText = () => {
         {/* Bottom row - moves right */}
         <motion.div
           style={{ x: rightX }}
-          className="flex gap-8 py-4 w-max mt-8"
+          className="flex gap-5 md:gap-8 py-4 w-max md:mt-8"
         >
           {[...features, ...features, ...features].map((feature, index) => (
             <div
               key={`bottom-${index}`}
-              className={`flex-shrink-0 w-56 h-72 rounded-2xl p-4 flex flex-col items-center ${feature.color}`}
+              className={`flex-shrink-0 w-48 h-52 md:w-56 md:h-72 rounded-2xl p-4 flex flex-col items-center ${feature.color}`}
             >
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="mb-4">{feature.icon}</div>
-                <h3 className="text-xl font-bold mb-2 text-center">
+                <h3 className="hidden md:block text-xl font-bold mb-2 text-center">
                   {feature.title}
                 </h3>
                 <p className="text-sm text-center">{feature.description}</p>

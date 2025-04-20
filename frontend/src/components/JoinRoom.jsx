@@ -33,19 +33,19 @@ const JoinRoom = () => {
     <div>
       <button
         onClick={() => setModalIsOpen(true)}
-        className="bg-red-300 text-white px-4 py-2 mx-auto w-48 rounded-full mt-6 hover:bg-transparent hover:text-black hover:border-2 hover:border-red-500 transition duration-300"
+        className="bg-red-300 text-white px-4 py-2 mx-auto w-48 rounded-full mt-4 md:mt-6 hover:bg-transparent hover:text-black dark:text-white hover:border-2 hover:border-red-500 transition duration-300"
       >
         Join Room via Code
       </button>
       <Modal
         isOpen={modalIsOpen}
         onRequestClose={() => setModalIsOpen(false)}
-        className="bg-slate-100 p-6 rounded-3xl shadow-lg w-1/3 max-w-lg mx-auto"
+        className="bg-slate-100 p-6 rounded-3xl shadow-lg w-[95%] md:w-1/3 max-w-lg mx-auto"
         overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
       >
-        <div className="flex flex-col items-center gap-5">
-        <h2 className="text-3xl font-bold ">Welcome to FocusMate</h2>
-        <p className="text-xl font-semibold text-purple-400 shadow-sm">Join Room</p>
+        <div className="flex flex-col items-center gap-3 md:gap-5">
+        <h2 className="text-xl font-serif md:text-3xl font-bold ">Welcome to FocusMate</h2>
+        <p className="text-lg md:text-xl font-semibold text-purple-400 shadow-sm">Join Room</p>
         <div className="w-full">
           <div className="flex flex-col gap-2 w-full">
             <div className="text-lg font-semibold">Enter Your Name:</div>

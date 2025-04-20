@@ -8,7 +8,7 @@ import { Footer } from './components/Footer'
 
 const App = () => {
   return (
-    <div className="font-serif">
+    <div className="font-serif dark:bg-gray-900 overflow-hidden">
       <Navbar/>
       <Outlet/>
       <Footer/>

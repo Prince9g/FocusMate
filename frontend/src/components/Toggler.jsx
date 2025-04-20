@@ -1,13 +1,30 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { GoSun } from "react-icons/go"
 import { BsMoon } from "react-icons/bs"
 
 const Toggler = () => {
   const [isChecked, setIsChecked] = useState(false)
-
+  
+  useEffect(()=>{
+    const theme = localStorage.getItem('theme');
+    if (theme === 'dark') {
+      setIsChecked(true);
+      document.documentElement.classList.add('dark');
+    } else {
+      setIsChecked(false);
+      document.documentElement.classList.remove('dark');
+    }
+  },[isChecked])
   const handleCheckboxChange = () => {
     setIsChecked(!isChecked)
-  }
+    localStorage.setItem('theme', !isChecked ? 'dark' : 'light');
+
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
 
   return (
     <>
@@ -20,7 +37,7 @@ const Toggler = () => {
           onChange={handleCheckboxChange}
         />
         <span
-          className={`slider mr-3 flex h-[26px] w-[50px] items-center rounded-full p-1 duration-200 ${
+          className={`slider md:mr-3 flex h-[26px] w-[50px] items-center rounded-full p-1 duration-200 ${
             isChecked ? 'bg-black' : 'bg-[#CCCCCE]'
           }`}
         >
@@ -37,7 +54,7 @@ const Toggler = () => {
           </span>
         </span>
         <span className='label flex items-center text-xl font-medium text-black'>
-           <span className='pl-1'> {isChecked ? 'Dark' : 'Light'} </span>
+           <span className='hidden md:block pl-1'> {isChecked ? 'Dark' : 'Light'} </span>
         </span>
       </label>
     </>
