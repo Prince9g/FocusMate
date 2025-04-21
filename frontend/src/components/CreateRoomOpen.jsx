@@ -15,14 +15,14 @@ const CreateRoomOpen = ({roomId, passcode}) => {
       <Modal
         isOpen={modalIsOpen}
         onRequestClose={() => setModalIsOpen(false)}
-        className="bg-slate-100 p-6 rounded-3xl shadow-lg w-1/3 max-w-lg mx-auto"
+        className="bg-slate-100 dark:bg-slate-900 p-6 rounded-3xl shadow-lg w-[95%] md:w-1/3 max-w-lg mx-auto"
         overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
       >
         <div className="flex flex-col items-center gap-3">
-        <h2 className="text-3xl font-bold ">Room Credentials</h2>
-        <p className="text-xl font-semibold text-purple-400 shadow-sm">Room Id: <span className="text-red-400">{roomId}</span></p>
-        <p className="text-xl font-semibold text-purple-400 shadow-sm">Passcode: <span className="text-red-400">{passcode}</span></p>
-        <p className="text-xl font-semibold text-purple-400">Take Screenshot: </p>
+        <h2 className="text-3xl font-bold dark:text-white">Room Credentials</h2>
+        <p className="text-xl font-semibold text-purple-400 shadow-sm dark:text-white">Room Id: <span className="text-red-400">{roomId}</span></p>
+        <p className="text-xl font-semibold text-purple-400 shadow-sm dark:text-white">Passcode: <span className="text-red-400">{passcode}</span></p>
+        <p className="text-xl font-semibold text-purple-400 ">Take Screenshot: </p>
         <div className="text-xl text-red-400">Share it with friends</div>
           <button className="p-2 bg-red-300 rounded-2xl w-1/2 text-white font-semibold" onClick={onRoomClick}>Enter in the Room</button>
         </div>

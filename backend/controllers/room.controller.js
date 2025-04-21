@@ -67,7 +67,8 @@ export const getRoomDetails = async (req, res) => {
       name: room.name,
       expiresAt: room.expiresAt,
       participants: room.participants,
-      messages: room.messages
+      messages: room.messages,
+      password: room.password,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch room details" });

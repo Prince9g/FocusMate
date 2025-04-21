@@ -41,17 +41,17 @@ const CreateRoom = () => {
       <Modal
         isOpen={modalIsOpen}
         onRequestClose={() => setModalIsOpen(false)}
-        className="bg-slate-100 p-6 rounded-3xl shadow-lg w-[95%] md:w-1/3 max-w-lg mx-auto"
+        className="bg-slate-100 dark:bg-slate-900 p-6 rounded-3xl shadow-lg w-[95%] md:w-1/3 max-w-lg mx-auto"
         overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
       >
         <div className="flex flex-col items-center gap-3 md:gap-5">
-          <h2 className="text-2xl font-serif md:text-3xl font-bold">Welcome to FocusMate</h2>
+          <h2 className="text-2xl font-serif md:text-3xl dark:text-white font-bold">Welcome to FocusMate</h2>
           <p className="text-lg md:text-xl font-semibold text-purple-400 shadow-sm">
             Create your Room
           </p>
           <div className="w-full">
             <div className="flex flex-col gap-2 w-full">
-              <div className="text-lg font-semibold">Enter Your Name:</div>
+              <div className="text-lg font-semibold dark:text-white">Enter Your Name:</div>
               <input
                 type="text"
                 required
@@ -61,7 +61,7 @@ const CreateRoom = () => {
               />
             </div>
             <div className="flex flex-col gap-2 w-full">
-              <div className="text-lg font-semibold">Enter Duration For Room:</div>
+              <div className="text-lg font-semibold dark:text-white">Enter Duration For Room:</div>
               <input
                 type="text"
                 required

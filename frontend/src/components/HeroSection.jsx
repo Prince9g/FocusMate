@@ -7,7 +7,7 @@ import JoinRoom from "./JoinRoom";
 const HeroSection = () => {
   return (
     <div className="mx-4 dark:text-white relative">
-        <div className="absolute z-[-1] dark:z-0 opacity-20 top-2"><Circle/></div>
+        <div className="absolute z-[-1] dark:z-0 opacity-20 top-2 hidden md:block"><Circle/></div>
         <div className="absolute z-[-1] opacity-20 bottom-2 right-2 md:bottom-2 md:right-[650px]"> <Diamond/> </div>
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-evenly h-full md:h-[90vh]">
         {/* left section  */}

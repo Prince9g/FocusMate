@@ -4,6 +4,7 @@ import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaSmile, FaPape
 import { IoMdExit } from 'react-icons/io';
 import io from 'socket.io-client';
 import axios from 'axios';
+import { useMediaQuery } from 'react-responsive';
 
 const Room = () => {
   const { roomId } = useParams();
@@ -23,6 +24,9 @@ const Room = () => {
   const [activeReaction, setActiveReaction] = useState(null);
   const [fullScreenUser, setFullScreenUser] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [password, setPassword] = useState(null);
+  const isMobile = useMediaQuery({ maxWidth: 767 });
+  const isTablet = useMediaQuery({ minWidth: 768, maxWidth: 1023 });
   
   const videoRefs = useRef({});
   const pcRefs = useRef({});
@@ -211,6 +215,7 @@ const Room = () => {
         const res = await axios.get(`http://localhost:8080/api/rooms/${roomId}`);
         if (res.data) {
           setRoomDetails(res.data);
+          setPassword(res.data.password);
           setMessages(res.data.messages || []);
           updateTimeLeft(res.data.expiresAt);
           
@@ -732,6 +737,25 @@ const Room = () => {
   const formatTime = (time) => {
     return time < 10 ? `0${time}` : time;
   };
+  
+  // Add this to your existing useEffect for video elements to handle mobile resize
+  useEffect(() => {
+    const handleResize = () => {
+      // Update video element sizes on resize
+      if (localStream && videoRefs.current['local']) {
+        videoRefs.current['local'].srcObject = localStream;
+      }
+      
+      Object.entries(remoteStreams).forEach(([userId, stream]) => {
+        if (videoRefs.current[userId]) {
+          videoRefs.current[userId].srcObject = stream;
+        }
+      });
+    };
+  
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [localStream, remoteStreams]);
 
   // Leave room gracefully
   const leaveRoom = () => {
@@ -776,31 +800,35 @@ const Room = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      {/* Header with room info */}
-      <div className="bg-purple-400 text-white p-4 flex justify-between items-center">
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-slate-900">
+      {/* Header */}
+      <div className="bg-purple-400 dark:bg-slate-700 text-white p-2 sm:p-4 flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold">Welcome to {roomDetails?.name}'s Room</h2>
-          <p className="text-sm">Meeting ID: {roomId} | Participants: {users.length}</p>
+          <h2 className="text-lg sm:text-xl font-bold truncate max-w-[180px] sm:max-w-none">
+            {roomDetails?.name}'s Room
+          </h2>
+          <p className="text-xs sm:text-sm">
+            ID: {roomId} | password: {password} | {users.length} users
+          </p>
         </div>
-        <div className="bg-red-500 px-4 py-2 rounded-lg flex items-center">
-          <span className="font-mono text-lg">
+        <div className="bg-red-500 px-3 py-1 sm:px-4 sm:py-2 rounded-lg flex items-center">
+          <span className="font-mono text-sm sm:text-lg">
             {formatTime(timeLeft.hours)}:
             {formatTime(timeLeft.minutes)}:
             {formatTime(timeLeft.seconds)}
           </span>
         </div>
       </div>
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Video/User grid on the left */}
-        <div className="flex-1 overflow-y-auto p-4">
+  
+      <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} flex-1 overflow-hidden`}>
+        {/* Video/User grid */}
+        <div className={`${isMobile ? 'order-2' : ''} ${isMobile ? 'h-1/2' : 'flex-1'} overflow-y-auto p-2 sm:p-4`}>
           {/* Full screen view */}
           {fullScreenUser && (
-            <div className="mb-4 bg-white rounded-lg shadow-md overflow-hidden h-full relative">
+            <div className="mb-2 sm:mb-4 bg-white rounded-lg shadow-md overflow-hidden h-full relative">
               {fullScreenUser.isCameraOff ? (
                 <div className="bg-gray-200 h-full flex items-center justify-center">
-                  <span className="text-9xl font-bold text-gray-600">
+                  <span className="text-6xl sm:text-9xl font-bold text-gray-600">
                     {fullScreenUser.name.charAt(0)}
                   </span>
                 </div>
@@ -847,16 +875,22 @@ const Room = () => {
               </div>
             </div>
           )}
-
+  
           {/* Grid view */}
-          <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 ${fullScreenUser ? 'mt-4' : ''}`}>
+          <div className={`grid ${
+            isMobile ? 'grid-cols-2' : 
+            isTablet ? 'grid-cols-3' : 
+            'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
+          } gap-2 sm:gap-4 ${fullScreenUser ? 'mt-2 sm:mt-4' : ''}`}>
             {/* Local user */}
             <div 
-              className={`bg-white rounded-lg shadow-md overflow-hidden h-48 relative ${isMuted ? 'ring-2 ring-blue-500' : ''}`}
+              className={`bg-white rounded-lg shadow-md overflow-hidden ${
+                isMobile ? 'h-32' : 'h-48'
+              } relative ${isMuted ? 'ring-2 ring-blue-500' : ''}`}
             >
               {isCameraOff ? (
                 <div className="bg-gray-200 h-full flex items-center justify-center">
-                  <span className="text-4xl font-bold text-gray-600">
+                  <span className="text-2xl sm:text-4xl font-bold text-gray-600">
                     {userName.charAt(0)}
                   </span>
                 </div>
@@ -871,7 +905,7 @@ const Room = () => {
                 </div>
               )}
               <div className="p-2 flex justify-between items-center bg-gray-50 absolute bottom-0 left-0 right-0">
-                <span className="font-medium truncate">
+                <span className="font-medium truncate text-xs sm:text-sm">
                   {userName} (You)
                 </span>
                 <div className="flex space-x-1">
@@ -885,16 +919,18 @@ const Room = () => {
                 </div>
               </div>
             </div>
-
+  
             {/* Remote users */}
             {users.filter(user => user.id !== 'local' && user.id !== socket.current?.id).map(user => (
               <div 
                 key={user.id}
-                className={`bg-white rounded-lg shadow-md overflow-hidden h-48 relative ${user.isSpeaking ? 'ring-2 ring-purple-400' : ''}`}
+                className={`bg-white rounded-lg shadow-md overflow-hidden ${
+                  isMobile ? 'h-32' : 'h-48'
+                } relative ${user.isSpeaking ? 'ring-2 ring-purple-400' : ''}`}
               >
                 {user.isCameraOff ? (
                   <div className="bg-gray-200 h-full flex items-center justify-center">
-                    <span className="text-4xl font-bold text-gray-600">
+                    <span className="text-2xl sm:text-4xl font-bold text-gray-600">
                       {user.name.charAt(0)}
                     </span>
                   </div>
@@ -907,12 +943,12 @@ const Room = () => {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <span>Connecting to {user.name}...</span>
+                      <span className="text-xs sm:text-base">Connecting to {user.name}...</span>
                     )}
                   </div>
                 )}
                 <div className="p-2 flex justify-between items-center bg-gray-50 absolute bottom-0 left-0 right-0">
-                  <span className="font-medium truncate">
+                  <span className="font-medium truncate text-xs sm:text-sm">
                     {user.name}
                   </span>
                   <div className="flex space-x-1">
@@ -929,69 +965,79 @@ const Room = () => {
             ))}
           </div>
         </div>
-
-        {/* Chat panel on the right */}
-        <div className="w-80 border-l border-gray-300 flex flex-col bg-white">
-          <div className="p-3 border-b border-gray-300 flex items-center">
+  
+        {/* Chat panel */}
+        <div className={`${
+          isMobile ? 'order-1 border-b' : 'border-l'
+        } border-gray-300 dark:bg-slate-900 flex flex-col bg-white  ${
+          isMobile ? 'h-1/2' : 'w-80'
+        }`}>
+          <div className="p-2 sm:p-3 border-b border-gray-300 flex items-center">
             <FaUserFriends className="mr-2 text-red-400" />
-            <h3 className="font-semibold">Chat</h3>
+            <h3 className="font-semibold dark:text-white">Chat</h3>
           </div>
-          <div className="flex-1 p-3 overflow-y-auto">
+          <div className="flex-1 p-2 sm:p-3 overflow-y-auto">
             {messages.map((msg, index) => (
               <div 
                 key={`msg-${index}-${msg.timestamp || Date.now()}-${msg.sender}`}
-                className={`mb-3 ${msg.isReaction ? 'text-2xl text-center' : ''}`}
+                className={`mb-2 sm:mb-3 ${msg.isReaction ? 'text-2xl text-center' : ''}`}
               >
                 {!msg.isReaction && (
-                  <div className="font-semibold text-red-400">{msg.sender}</div>
+                  <div className="font-semibold text-red-400 text-sm sm:text-base">{msg.sender}</div>
                 )}
-                <div>{msg.content}</div>
+                <div className="text-xs sm:text-sm dark:text-white">{msg.content}</div>
               </div>
             ))}
             <div ref={messageEndRef} />
           </div>
-          <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-300">
+          <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-gray-300">
             <div className="flex">
               <input
                 type="text"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Type a message..."
-                className="flex-1 border border-gray-300 rounded-l-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                className="flex-1 border border-gray-300 rounded-l-lg px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-purple-400"
               />
               <button
                 type="submit"
-                className="bg-red-400 text-white px-3 py-2 rounded-r-lg hover:bg-red-600"
+                className="bg-red-400 text-white px-2 sm:px-3 py-1 sm:py-2 rounded-r-lg hover:bg-red-600"
               >
-                <FaPaperPlane />
+                <FaPaperPlane size={isMobile ? 14 : 16} />
               </button>
             </div>
           </form>
         </div>
       </div>
-
+  
       {/* Controls bar */}
-      <div className="bg-white border-t border-gray-300 p-3 flex justify-center items-center space-x-4 relative">
+      <div className="bg-white dark:bg-gray-700 border-t border-gray-300  p-2 sm:p-3 flex justify-center items-center space-x-2 sm:space-x-4 relative">
         <button
           onClick={toggleMute}
-          className={`p-3 rounded-full ${isMuted ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+          className={`p-2 sm:p-3 rounded-full ${
+            isMuted ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
         >
-          {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
+          {isMuted ? <FaMicrophoneSlash size={isMobile ? 16 : 20} /> : <FaMicrophone size={isMobile ? 16 : 20} />}
         </button>
         
         <button
           onClick={toggleCamera}
-          className={`p-3 rounded-full ${isCameraOff ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+          className={`p-2 sm:p-3 rounded-full ${
+            isCameraOff ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
         >
-          {isCameraOff ? <FaVideoSlash /> : <FaVideo />}
+          {isCameraOff ? <FaVideoSlash size={isMobile ? 16 : 20} /> : <FaVideo size={isMobile ? 16 : 20} />}
         </button>
         
         <div className="relative">
           <button
             onClick={() => setShowReactions(!showReactions)}
-            className={`p-3 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 ${activeReaction ? 'animate-bounce' : ''}`}
+            className={`p-2 sm:p-3 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 ${
+              activeReaction ? 'animate-bounce' : ''
+            }`}
           >
-            {activeReaction || <FaSmile />}
+            {activeReaction || <FaSmile size={isMobile ? 16 : 20} />}
           </button>
           
           {showReactions && (
@@ -1012,9 +1058,9 @@ const Room = () => {
         
         <button 
           onClick={leaveRoom}
-          className="p-3 rounded-full bg-red-500 text-white hover:bg-red-600"
+          className="p-2 sm:p-3 rounded-full bg-red-500 text-white hover:bg-red-600"
         >
-          <IoMdExit />
+          <IoMdExit size={isMobile ? 18 : 20} />
         </button>
       </div>
     </div>
