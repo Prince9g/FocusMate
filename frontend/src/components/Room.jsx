@@ -25,6 +25,10 @@ const Room = () => {
   const [fullScreenUser, setFullScreenUser] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [password, setPassword] = useState(null);
+  const [pomodoro, setPomodoro] = useState({minutes:25, seconds: 0}); // 25 minutes in seconds
+  const [fiveMint, setFiveMint] = useState({minutes:5, seconds: 0}); // 5 minutes in seconds
+  const [isPomodoroActive, setIsPomodoroActive] = useState(true);
+  const [isThereLeft, setIsThereLeft] = useState(false);
   const isMobile = useMediaQuery({ maxWidth: 767 });
   const isTablet = useMediaQuery({ minWidth: 768, maxWidth: 1023 });
   
@@ -489,6 +493,12 @@ const Room = () => {
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      if(minutes > 25) {
+        setIsThereLeft(true);
+      }
+      // const timeInSeconds = Math.floor(diff / 1000);
+      
+      // setPomodoro({minutes, seconds});
       
       setTimeLeft({ hours, minutes, seconds });
     };
@@ -497,6 +507,60 @@ const Room = () => {
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   };
+
+  useEffect(() => {
+    let timer;
+    
+    if (isPomodoroActive) {
+      timer = setInterval(() => {
+        setPomodoro(prevTime => {
+          const { minutes, seconds } = prevTime;
+          
+          if (minutes === 0 && seconds === 0) {
+            clearInterval(timer);
+            setIsPomodoroActive(false);
+            setFiveMint({minutes: 5, seconds: 0}); // Reset to 5 minutes
+            return { minutes: 0, seconds: 0 };
+          }
+          
+          if (seconds === 0) {
+            return { minutes: minutes - 1, seconds: 59 };
+          }
+          
+          return { minutes, seconds: seconds - 1 };
+        });
+      }, 1000);
+    }
+    
+    return () => clearInterval(timer);
+  }, [isPomodoroActive]);
+  useEffect(() => {
+    let timer;
+    
+    if (!isPomodoroActive) {
+      timer = setInterval(() => {
+        setFiveMint(prevTime => {
+          const { minutes, seconds } = prevTime;
+          
+          if (minutes === 0 && seconds === 0) {
+            clearInterval(timer);
+            setIsPomodoroActive(true);
+            setPomodoro({minutes: 25, seconds: 0}); // Reset to 25 minutes
+            return { minutes: 0, seconds: 0 };
+          }
+          
+          if (seconds === 0) {
+            return { minutes: minutes - 1, seconds: 59 };
+          }
+          
+          return { minutes, seconds: seconds - 1 };
+        });
+      }, 1000);
+    }
+    
+    return () => clearInterval(timer);
+  }, [!isPomodoroActive]);
+
 
   // Set up volume analyzer for speaking detection
   const setupVolumeDetection = (stream) => {
@@ -800,7 +864,7 @@ const Room = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100 dark:bg-slate-900">
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-slate-900 relative">
       {/* Header */}
       <div className="bg-purple-400 dark:bg-slate-700 text-white p-2 sm:p-4 flex justify-between items-center">
         <div>
@@ -811,6 +875,8 @@ const Room = () => {
             ID: {roomId} | password: {password} | {users.length} users
           </p>
         </div>
+        
+        <div className="flex flex-col md:flex-row-reverse justify-center gap-2 items-center">
         <div className="bg-red-500 px-3 py-1 sm:px-4 sm:py-2 rounded-lg flex items-center">
           <span className="font-mono text-sm sm:text-lg">
             {formatTime(timeLeft.hours)}:
@@ -818,6 +884,18 @@ const Room = () => {
             {formatTime(timeLeft.seconds)}
           </span>
         </div>
+        {
+          isPomodoroActive && isThereLeft && (
+            <div className="flex flex-col md:flex-row items-center md:gap-2 bg-gray-700 rounded-3xl p-1 md:p-2 w-full md:w-auto">
+              <span className="text-sm sm:text-lg hidden md:block">Pomodoro Timer:</span>
+              <span className="font-mono text-sm sm:text-lg">
+                {formatTime(pomodoro.minutes)}:{formatTime(pomodoro.seconds)}
+              </span>
+            </div>
+          )
+        }
+        </div>
+        
       </div>
   
       <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} flex-1 overflow-hidden`}>
@@ -1063,6 +1141,21 @@ const Room = () => {
           <IoMdExit size={isMobile ? 18 : 20} />
         </button>
       </div>
+      {
+        !isPomodoroActive && (
+          <div>
+            <div className="absolute bottom-0 left-0 right-0 bg-transparent dark:text-white p-2 sm:p-3 flex h-screen justify-center items-center space-x-2 sm:space-x-4">
+              <div className="flex w-full md:w-auto flex-col justify-center items-center border rounded-xl border-black p-4 dark:border-gray-300 bg-red-200 dark:bg-slate-700 shadow-lg">
+              <span className="text-3xl md:text-6xl font-bold">Break Timer:</span>
+              <span className="font-mono mt-4 font-medium border border-black p-4 dark:border-gray-200 rounded-3xl text-5xl md:text-9xl w-3/4 md:w-auto text-center">
+                {formatTime(fiveMint.minutes)}:{formatTime(fiveMint.seconds)}
+              </span>
+              <div className="text-3xl mt-4 font-semibold">Screen Disabled 🔇</div>
+              </div>
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 };

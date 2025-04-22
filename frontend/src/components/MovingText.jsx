@@ -180,7 +180,7 @@ export const MovingText = () => {
   return (
     <section
       ref={targetRef}
-      className="md:h-[120vh] bg-neutral-50 dark:bg-slate-900 text-neutral-950 relative overflow-hidden"
+      className="md:h-[100vh] lg:h-[110vh] bg-neutral-50 dark:bg-slate-900 text-neutral-950 relative overflow-hidden"
     >
       <div className="sticky top-0 md:h-screen flex flex-col justify-center">
         {/* Top row - moves left */}
