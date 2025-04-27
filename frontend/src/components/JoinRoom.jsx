@@ -2,6 +2,8 @@ import axios from "axios";
 import React, { useRef, useState } from "react";
 import Modal from "react-modal";
 import { useNavigate } from "react-router-dom";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 Modal.setAppElement("#root");
 
@@ -22,15 +24,22 @@ const JoinRoom = () => {
         // const username = res.data.room.name;
         localStorage.setItem("focusRoomUser", name.current.value);
         setModalIsOpen(false);
-        navigate(`/room/${roomId.current.value}`);
+        toast.success(res.data.message);
+        const rome = roomId.current.value;
+        setTimeout(()=>{
+          console.log("navigating to room");
+          navigate(`/room/${rome}`);
+        }, 3000);
       }
     }
     catch (error) {
-      console.error("Error joining room:", error);
+      toast.error(error.response.data.message);
+      setModalIsOpen(false);
     }
   };
   return (
     <div>
+      <ToastContainer position="top-right" autoClose={3000} theme="colored" />
       <button
         onClick={() => setModalIsOpen(true)}
         className="bg-red-300 text-white px-4 py-2 mx-auto w-48 rounded-full mt-4 md:mt-6 hover:bg-transparent hover:text-black dark:text-white hover:border-2 hover:border-red-500 transition duration-300"
